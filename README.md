@@ -1,11 +1,11 @@
 # chap-python-sdk
 
-A validation and testing framework for chapkit models. This SDK provides tools to test chapkit model implementations against various test datasets with a simple CLI and pytest-based testing setup.
+A validation and testing framework for chapkit models. This SDK provides tools to test chapkit model implementations against various test datasets with a simple pytest-based testing setup.
 
 ## Features
 
 - Test dataset management for validating chapkit models
-- Testing utilities for validating `BaseModelRunner` implementations
+- Testing utilities for validating model train/predict functions
 - Assertion helpers for model I/O validation
 - Prediction format conversion utilities
 - pytest integration for automated testing workflows
@@ -29,13 +29,12 @@ pip install chap-python-sdk
 
 ## Quick Start
 
-### Testing a BaseModelRunner
+### Testing Model Functions
 
-The `chap_python_sdk.testing` module provides utilities for testing models that implement the chapkit `BaseModelRunner` interface.
+The `chap_python_sdk.testing` module provides utilities for testing models using the chapkit functional interface.
 
 ```python
 import pytest
-from chapkit.ml.runner import BaseModelRunner
 from chapkit.config.schemas import BaseConfig
 from chapkit.data import DataFrame
 
@@ -48,35 +47,57 @@ class MyModelConfig(BaseConfig):
     learning_rate: float = 0.01
 
 
-class MyModelRunner(BaseModelRunner[MyModelConfig]):
-    """My chapkit model implementation."""
+async def my_train(config: BaseConfig, data: DataFrame, geo=None):
+    """Train the model."""
+    return {"means": 10.0}
 
-    async def on_train(self, config, data, geo=None):
-        """Train the model."""
-        return {"means": data.mean()}
 
-    async def on_predict(self, config, model, historic, future, geo=None):
-        """Generate predictions."""
-        samples = [[model["means"]] for _ in range(len(future))]
-        return DataFrame({
-            "time_period": future["time_period"],
-            "location": future["location"],
-            "samples": samples,
-        })
+async def my_predict(config: BaseConfig, model, historic: DataFrame, future: DataFrame, geo=None):
+    """Generate predictions."""
+    samples = [[model["means"]] * 10 for _ in range(len(future))]
+    return DataFrame.from_dict({
+        "time_period": list(future["time_period"]),
+        "location": list(future["location"]),
+        "samples": samples,
+    })
 
 
 @pytest.mark.asyncio
 async def test_my_model():
-    """Test MyModelRunner against example data."""
-    runner = MyModelRunner()
+    """Test my model against example data."""
     example_data = get_example_data(country="laos", frequency="monthly")
     config = MyModelConfig()
 
-    result = await validate_model_io(runner, example_data, config)
+    result = await validate_model_io(my_train, my_predict, example_data, config)
 
     assert result.success, f"Validation failed: {result.errors}"
     assert result.n_predictions == 21
     assert result.n_samples >= 1
+```
+
+### Using FunctionalModelRunner
+
+If you prefer to bundle your functions into a runner object, you can use chapkit's `FunctionalModelRunner`:
+
+```python
+from chapkit import FunctionalModelRunner
+from chap_python_sdk.testing import get_example_data, validate_model_io
+
+
+async def my_train(config, data, geo=None):
+    return {"model": "trained"}
+
+
+async def my_predict(config, model, historic, future, geo=None):
+    # prediction logic
+    ...
+
+
+# Create runner from functions
+runner = FunctionalModelRunner(on_train=my_train, on_predict=my_predict)
+
+# The SDK also re-exports FunctionalModelRunner for convenience
+from chap_python_sdk.testing import FunctionalModelRunner
 ```
 
 ### Assertion Helpers
@@ -146,57 +167,52 @@ nested_predictions = predictions_from_wide(wide_dataframe)
 format_type = detect_prediction_format(dataframe)  # Returns: "nested", "wide", or "long"
 ```
 
-## BaseModelRunner Interface
+## Functional Interface
 
-Models must implement the chapkit `BaseModelRunner` interface:
+Models are defined as async functions following the chapkit functional interface:
+
+### Train Function
 
 ```python
-from abc import ABC, abstractmethod
-from typing import Any, Generic, TypeVar
-from geojson_pydantic import FeatureCollection
-from chapkit.config.schemas import BaseConfig
-from chapkit.data import DataFrame
+async def on_train(
+    config: BaseConfig,
+    data: DataFrame,
+    geo: FeatureCollection | None = None,
+) -> Any:
+    """Train a model and return the trained model object (must be pickleable)."""
+    # Training logic here
+    return trained_model
+```
 
-ConfigT = TypeVar("ConfigT", bound=BaseConfig)
+### Predict Function
 
+```python
+async def on_predict(
+    config: BaseConfig,
+    model: Any,
+    historic: DataFrame,
+    future: DataFrame,
+    geo: FeatureCollection | None = None,
+) -> DataFrame:
+    """Make predictions using a trained model and return predictions as DataFrame."""
+    # Prediction logic here
+    return predictions_dataframe
+```
 
-class BaseModelRunner(ABC, Generic[ConfigT]):
-    """Abstract base class for model runners."""
+### Type Aliases
 
-    async def on_init(self) -> None:
-        """Optional initialization hook called before training or prediction."""
-        pass
+The SDK provides type aliases for these functions:
 
-    async def on_cleanup(self) -> None:
-        """Optional cleanup hook called after training or prediction."""
-        pass
+```python
+from chap_python_sdk.testing import TrainFunction, PredictFunction
 
-    @abstractmethod
-    async def on_train(
-        self,
-        config: ConfigT,
-        data: DataFrame,
-        geo: FeatureCollection | None = None,
-    ) -> Any:
-        """Train a model and return the trained model object (must be pickleable)."""
-        ...
-
-    @abstractmethod
-    async def on_predict(
-        self,
-        config: ConfigT,
-        model: Any,
-        historic: DataFrame,
-        future: DataFrame,
-        geo: FeatureCollection | None = None,
-    ) -> DataFrame:
-        """Make predictions using a trained model and return predictions as DataFrame."""
-        ...
+# TrainFunction = Callable[[BaseConfig, DataFrame, GeoFeatureCollection | None], Awaitable[Any]]
+# PredictFunction = Callable[[BaseConfig, Any, DataFrame, DataFrame, GeoFeatureCollection | None], Awaitable[DataFrame]]
 ```
 
 ### Prediction Output Format
 
-The `on_predict` method must return a DataFrame with these columns:
+The predict function must return a DataFrame with these columns:
 
 | Column | Type | Description |
 |--------|------|-------------|

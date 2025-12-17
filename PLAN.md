@@ -1,6 +1,6 @@
 # Implementation Plan: chap_python_sdk.testing Module
 
-This document outlines the implementation plan for the `chap_python_sdk.testing` module, which provides testing utilities for validating chapkit model implementations following the `BaseModelRunner` interface.
+This document outlines the implementation plan for the `chap_python_sdk.testing` module, which provides testing utilities for validating chapkit model implementations using the functional interface.
 
 ## Project Info
 
@@ -20,15 +20,12 @@ This document outlines the implementation plan for the `chap_python_sdk.testing`
 - [x] Phase 5: Assertion helpers (assertions.py)
 - [x] Phase 6: Model I/O validation (validation.py)
 - [x] Phase 7: Public API exports (__init__.py)
+- [x] Phase 8: Tests (115 pytest tests passing)
 - [x] GitHub repository created and code pushed
+- [x] Refactored to functional interface (FunctionalModelRunner)
 
 ### Remaining Tasks (Jira Sub-tasks for CLIM-267)
 
-- [ ] **Add unit tests for testing module** - Write pytest tests for all testing module functions
-- [ ] **Add Makefile with lint/test commands** - Create Makefile for development workflows
-- [ ] **Run linting and fix issues** - Run ruff/mypy/pyright and fix any type or style issues
-- [ ] **Add pytest fixtures for model testing** - Create reusable fixtures in conftest.py
-- [ ] **Add CI/CD with GitHub Actions** - Set up automated testing and linting
 - [ ] **Publish package to PyPI** - Configure and publish the package (optional)
 
 ---
@@ -37,55 +34,52 @@ This document outlines the implementation plan for the `chap_python_sdk.testing`
 
 The testing module enables model developers to:
 1. Load example datasets in the format expected by chapkit models
-2. Validate that their `BaseModelRunner` implementations produce correct output
+2. Validate that their train/predict functions produce correct output
 3. Use assertion helpers for fine-grained testing
 4. Convert between prediction formats (nested, wide, long)
 
-## BaseModelRunner Interface (from chapkit)
+## Functional Interface (from chapkit)
 
-The testing module supports models implementing the chapkit `BaseModelRunner` interface:
+The testing module supports the chapkit functional interface via `FunctionalModelRunner`:
 
 ```python
-from abc import ABC, abstractmethod
-from typing import Any, Generic, TypeVar
+from typing import Any, Awaitable, Callable
 from geojson_pydantic import FeatureCollection
 from chapkit.config.schemas import BaseConfig
 from chapkit.data import DataFrame
 
-ConfigT = TypeVar("ConfigT", bound=BaseConfig)
+# Type aliases for model functions
+type TrainFunction = Callable[
+    [BaseConfig, DataFrame, FeatureCollection | None],
+    Awaitable[Any]
+]
 
-class BaseModelRunner(ABC, Generic[ConfigT]):
-    """Abstract base class for model runners."""
+type PredictFunction = Callable[
+    [BaseConfig, Any, DataFrame, DataFrame, FeatureCollection | None],
+    Awaitable[DataFrame]
+]
 
-    async def on_init(self) -> None:
-        """Optional initialization hook."""
-        pass
 
-    async def on_cleanup(self) -> None:
-        """Optional cleanup hook."""
-        pass
+# Example train function
+async def on_train(
+    config: BaseConfig,
+    data: DataFrame,
+    geo: FeatureCollection | None = None,
+) -> Any:
+    """Train a model and return the trained model object."""
+    return {"model": "trained"}
 
-    @abstractmethod
-    async def on_train(
-        self,
-        config: ConfigT,
-        data: DataFrame,
-        geo: FeatureCollection | None = None,
-    ) -> Any:
-        """Train a model and return the trained model object."""
-        ...
 
-    @abstractmethod
-    async def on_predict(
-        self,
-        config: ConfigT,
-        model: Any,
-        historic: DataFrame,
-        future: DataFrame,
-        geo: FeatureCollection | None = None,
-    ) -> DataFrame:
-        """Make predictions using a trained model."""
-        ...
+# Example predict function
+async def on_predict(
+    config: BaseConfig,
+    model: Any,
+    historic: DataFrame,
+    future: DataFrame,
+    geo: FeatureCollection | None = None,
+) -> DataFrame:
+    """Make predictions using a trained model."""
+    return DataFrame.from_dict({...})
 ```
 
 ---
@@ -95,7 +89,7 @@ class BaseModelRunner(ABC, Generic[ConfigT]):
 ### 1.1 Update pyproject.toml
 
 Add required dependencies:
-- `chapkit` - Model framework (provides DataFrame, BaseConfig, BaseModelRunner)
+- `chapkit` - Model framework (provides DataFrame, BaseConfig, FunctionalModelRunner)
 - `pydantic` - Data validation and result schemas
 - `pyyaml` - Configuration file handling
 - `geojson-pydantic` - GeoJSON types
@@ -142,14 +136,24 @@ src/chap_python_sdk/data/
 ```python
 """Type definitions for the testing module."""
 
-from dataclasses import dataclass
-from typing import Any, Protocol, TypeVar
+from dataclasses import dataclass, field
+from typing import Any, Awaitable, Callable
 
 from chapkit.config.schemas import BaseConfig
 from chapkit.data import DataFrame
-from geojson_pydantic import FeatureCollection
+from geojson_pydantic import Feature, FeatureCollection
 
-ConfigT = TypeVar("ConfigT", bound=BaseConfig)
+GeoFeatureCollection = FeatureCollection[Feature[Any, Any]]
+
+# Type aliases for functional model runner interface
+type TrainFunction = Callable[
+    [BaseConfig, DataFrame, GeoFeatureCollection | None],
+    Awaitable[Any]
+]
+type PredictFunction = Callable[
+    [BaseConfig, Any, DataFrame, DataFrame, GeoFeatureCollection | None],
+    Awaitable[DataFrame]
+]
 
 
 @dataclass
@@ -159,9 +163,9 @@ class ExampleData:
     training_data: DataFrame
     historic_data: DataFrame
     future_data: DataFrame
-    predictions: DataFrame | None
-    configuration: BaseConfig | None
-    geo: FeatureCollection | None
+    predictions: DataFrame | None = None
+    configuration: dict[str, Any] | None = None
+    geo: GeoFeatureCollection | None = None
 
 
 @dataclass
@@ -169,33 +173,10 @@ class ValidationResult:
     """Result of model I/O validation."""
 
     success: bool
-    errors: list[str]
-    warnings: list[str]
-    n_predictions: int
-    n_samples: int
-
-
-class ModelRunnerProtocol(Protocol[ConfigT]):
-    """Protocol for chapkit model runner interface."""
-
-    async def on_init(self) -> None: ...
-    async def on_cleanup(self) -> None: ...
-
-    async def on_train(
-        self,
-        config: ConfigT,
-        data: DataFrame,
-        geo: FeatureCollection | None = None,
-    ) -> Any: ...
-
-    async def on_predict(
-        self,
-        config: ConfigT,
-        model: Any,
-        historic: DataFrame,
-        future: DataFrame,
-        geo: FeatureCollection | None = None,
-    ) -> DataFrame: ...
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    n_predictions: int = 0
+    n_samples: int = 0
 ```
 
 ---
@@ -215,31 +196,10 @@ def list_available_datasets() -> list[tuple[str, str]]:
 def get_example_data(
     country: str,
     frequency: str,
-    config_class: type[BaseConfig] | None = None,
+    configuration: dict[str, Any] | None = None,
 ) -> ExampleData:
     """Load example dataset for the specified country and frequency."""
 ```
-
-### 3.3 DataFrame Loading
-
-```python
-def load_data_file(file_path: Path) -> DataFrame:
-    """Load CSV file into chapkit DataFrame with automatic column detection."""
-```
-
-Time column detection (priority order):
-- `time_period`
-- `date`
-- `week`
-- `month`
-- `year`
-
-Location column detection (priority order):
-- `location`
-- `region`
-- `district`
-- `area`
-- `site`
 
 ---
 
@@ -331,22 +291,6 @@ def assert_time_location_columns(predictions: DataFrame) -> None:
     """Assert predictions have time_period and location columns."""
 ```
 
-### 5.3 Model Runner Assertions
-
-```python
-async def assert_model_runner_interface(
-    runner: ModelRunnerProtocol,
-) -> None:
-    """Assert runner implements required BaseModelRunner methods."""
-
-async def assert_train_returns_pickleable(
-    runner: ModelRunnerProtocol,
-    config: BaseConfig,
-    data: DataFrame,
-) -> None:
-    """Assert on_train returns a pickleable object."""
-```
-
 ---
 
 ## Phase 6: Model I/O Validation (validation.py)
@@ -355,20 +299,20 @@ async def assert_train_returns_pickleable(
 
 ```python
 async def validate_model_io(
-    runner: ModelRunnerProtocol,
+    train_function: TrainFunction,
+    predict_function: PredictFunction,
     example_data: ExampleData,
     config: BaseConfig | None = None,
 ) -> ValidationResult:
     """
-    Validate model runner against example data.
+    Validate model train/predict functions against example data.
 
     Steps:
-    1. Call runner.on_init()
+    1. Create FunctionalModelRunner from train/predict functions
     2. Call runner.on_train() with training_data
     3. Call runner.on_predict() with historic_data, future_data, and trained model
     4. Validate prediction output structure
-    5. Call runner.on_cleanup()
-    6. Return ValidationResult with success/errors
+    5. Return ValidationResult with success/errors
     """
 ```
 
@@ -376,26 +320,26 @@ async def validate_model_io(
 
 ```python
 async def validate_model_io_all(
-    runner: ModelRunnerProtocol,
+    train_function: TrainFunction,
+    predict_function: PredictFunction,
     config: BaseConfig | None = None,
     country: str | None = None,
     frequency: str | None = None,
 ) -> ValidationResult:
-    """Validate model runner against all matching datasets."""
+    """Validate model functions against all matching datasets."""
 ```
 
 ### 6.3 Validation Checks
 
-The validation should check:
-- [ ] Predictions is a DataFrame
-- [ ] Has 'samples' column (or can be converted from wide format)
-- [ ] Samples column contains lists of numeric values
-- [ ] All rows have the same number of samples
-- [ ] Row count matches future_data row count
-- [ ] Has time_period and location columns
-- [ ] on_train doesn't raise exceptions
-- [ ] on_predict doesn't raise exceptions
-- [ ] on_init/on_cleanup are called properly
+The validation checks:
+- [x] Predictions is a DataFrame
+- [x] Has 'samples' column (or can be converted from wide format)
+- [x] Samples column contains lists of numeric values
+- [x] All rows have the same number of samples
+- [x] Row count matches future_data row count
+- [x] Has time_period and location columns
+- [x] train_function doesn't raise exceptions
+- [x] predict_function doesn't raise exceptions
 
 ---
 
@@ -406,6 +350,8 @@ The validation should check:
 ```python
 # src/chap_python_sdk/testing/__init__.py
 """Testing utilities for chapkit model validation."""
+
+from chapkit import FunctionalModelRunner
 
 from chap_python_sdk.testing.example_data import (
     get_example_data,
@@ -422,8 +368,6 @@ from chap_python_sdk.testing.assertions import (
     assert_consistent_sample_counts,
     assert_numeric_samples,
     assert_time_location_columns,
-    assert_model_runner_interface,
-    assert_train_returns_pickleable,
 )
 from chap_python_sdk.testing.predictions import (
     predictions_to_wide,
@@ -438,7 +382,9 @@ from chap_python_sdk.testing.predictions import (
 from chap_python_sdk.testing.types import (
     ExampleData,
     ValidationResult,
-    ModelRunnerProtocol,
+    TrainFunction,
+    PredictFunction,
+    GeoFeatureCollection,
 )
 
 __all__ = [
@@ -455,8 +401,6 @@ __all__ = [
     "assert_consistent_sample_counts",
     "assert_numeric_samples",
     "assert_time_location_columns",
-    "assert_model_runner_interface",
-    "assert_train_returns_pickleable",
     # Predictions
     "predictions_to_wide",
     "predictions_from_wide",
@@ -469,7 +413,11 @@ __all__ = [
     # Types
     "ExampleData",
     "ValidationResult",
-    "ModelRunnerProtocol",
+    "TrainFunction",
+    "PredictFunction",
+    "GeoFeatureCollection",
+    # Re-export from chapkit
+    "FunctionalModelRunner",
 ]
 ```
 
@@ -488,6 +436,7 @@ tests/
       test_predictions.py
       test_assertions.py
       test_validation.py
+      test_config_validation.py
       conftest.py  # pytest fixtures
 ```
 
@@ -497,7 +446,12 @@ tests/
 """Pytest fixtures for testing chapkit models."""
 
 import pytest
-from chap_python_sdk.testing import get_example_data, ExampleData
+from chap_python_sdk.testing import (
+    get_example_data,
+    ExampleData,
+    TrainFunction,
+    PredictFunction,
+)
 
 
 @pytest.fixture
@@ -506,66 +460,37 @@ def laos_monthly_data() -> ExampleData:
     return get_example_data(country="laos", frequency="monthly")
 
 
+def create_simple_train_function(n_samples: int = 10) -> TrainFunction:
+    """Create a simple train function for testing."""
+    async def simple_train(config, data, geo=None):
+        return {"mean": 10.0, "n_samples": n_samples}
+    return simple_train
+
+
+def create_simple_predict_function() -> PredictFunction:
+    """Create a simple predict function for testing."""
+    async def simple_predict(config, model, historic, future, geo=None):
+        # Generate predictions
+        ...
+    return simple_predict
+
+
 @pytest.fixture
-def simple_model_runner():
-    """Create a simple deterministic model runner for testing."""
-    ...
+def simple_train_function() -> TrainFunction:
+    """Create a simple train function for testing."""
+    return create_simple_train_function(n_samples=10)
+
+
+@pytest.fixture
+def simple_predict_function() -> PredictFunction:
+    """Create a simple predict function for testing."""
+    return create_simple_predict_function()
 ```
 
-### 8.3 Test Cases
+### 8.3 Test Results
 
-**test_example_data.py:**
-- Test list_available_datasets returns expected datasets
-- Test get_example_data loads all components
-- Test training_data has expected columns
-- Test historic_data has expected columns
-- Test future_data has expected columns
-- Test invalid country/frequency raises error
-
-**test_predictions.py:**
-- Test detect_prediction_format for each format
-- Test nested to wide conversion
-- Test wide to nested conversion
-- Test nested to long conversion
-- Test long to nested conversion
-- Test round-trip conversions preserve data
-- Test has_prediction_samples
-- Test predictions_to_quantiles
-- Test predictions_summary
-
-**test_assertions.py:**
-- Test assert_valid_predictions passes for valid data
-- Test assert_valid_predictions fails for invalid data
-- Test assert_prediction_shape matches future_data
-- Test assert_samples_column validates samples
-- Test assertion error messages are descriptive
-
-**test_validation.py:**
-- Test validate_model_io with deterministic model (1 sample)
-- Test validate_model_io with probabilistic model (100 samples)
-- Test validation calls on_init and on_cleanup
-- Test validation fails when samples column missing
-- Test validation fails when row count mismatch
-- Test validation fails when on_train raises exception
-- Test validation fails when on_predict raises exception
-- Test validate_model_io_all runs against all datasets
-
----
-
-## Phase 9: Pytest Plugin (Optional)
-
-### 9.1 Pytest Markers
-
-```python
-# pytest plugin providing markers for model testing
-@pytest.mark.chapkit_model
-def test_my_model():
-    ...
-```
-
-### 9.2 Auto-Discovery
-
-Consider auto-discovering BaseModelRunner implementations for testing.
+- **115 tests passing**
+- All ruff/mypy/pyright checks passing
 
 ---
 
@@ -578,7 +503,7 @@ Consider auto-discovering BaseModelRunner implementations for testing.
 5. [x] **Phase 5**: Assertion helpers
 6. [x] **Phase 6**: Model I/O validation
 7. [x] **Phase 7**: Public API exports
-8. [ ] **Phase 8**: Tests
+8. [x] **Phase 8**: Tests (115 tests passing)
 9. [ ] **Phase 9**: Pytest plugin (optional)
 
 ---
@@ -586,7 +511,7 @@ Consider auto-discovering BaseModelRunner implementations for testing.
 ## Dependencies Summary
 
 ### Runtime
-- chapkit - Model framework (DataFrame, BaseConfig, BaseModelRunner)
+- chapkit - Model framework (DataFrame, BaseConfig, FunctionalModelRunner)
 - pydantic>=2.0 - Data validation
 - pyyaml>=6.0 - Configuration files
 - geojson-pydantic - GeoJSON types
@@ -603,10 +528,9 @@ Consider auto-discovering BaseModelRunner implementations for testing.
 ## Usage Example
 
 ```python
-"""Example: Testing a chapkit model runner."""
+"""Example: Testing chapkit model functions."""
 
 import pytest
-from chapkit.ml.runner import BaseModelRunner
 from chapkit.config.schemas import BaseConfig
 from chapkit.data import DataFrame
 
@@ -622,33 +546,28 @@ class MyModelConfig(BaseConfig):
     learning_rate: float = 0.01
 
 
-class MyModelRunner(BaseModelRunner[MyModelConfig]):
-    """My chapkit model implementation."""
+async def my_train(config, data, geo=None):
+    """Train the model."""
+    return {"means": 10.0}
 
-    async def on_train(self, config, data, geo=None):
-        """Train the model."""
-        # Training logic here
-        return {"means": data.mean()}
 
-    async def on_predict(self, config, model, historic, future, geo=None):
-        """Generate predictions."""
-        # Prediction logic here
-        samples = [[model["means"]] for _ in range(len(future))]
-        return DataFrame({
-            "time_period": future["time_period"],
-            "location": future["location"],
-            "samples": samples,
-        })
+async def my_predict(config, model, historic, future, geo=None):
+    """Generate predictions."""
+    samples = [[model["means"]] * 10 for _ in range(len(future))]
+    return DataFrame.from_dict({
+        "time_period": list(future["time_period"]),
+        "location": list(future["location"]),
+        "samples": samples,
+    })
 
 
 @pytest.mark.asyncio
 async def test_my_model():
-    """Test MyModelRunner against example data."""
-    runner = MyModelRunner()
+    """Test my model against example data."""
     example_data = get_example_data(country="laos", frequency="monthly")
     config = MyModelConfig()
 
-    result = await validate_model_io(runner, example_data, config)
+    result = await validate_model_io(my_train, my_predict, example_data, config)
 
     assert result.success, f"Validation failed: {result.errors}"
     assert result.n_predictions == 21
@@ -660,7 +579,7 @@ async def test_my_model():
 ## References
 
 - chapkit: `/Users/knutdr/Sources/chapkit/`
-  - `src/chapkit/ml/runner.py` - BaseModelRunner interface
+  - `src/chapkit/ml/runner.py` - FunctionalModelRunner, BaseModelRunner
   - `src/chapkit/ml/schemas.py` - ModelRunnerProtocol
   - `src/chapkit/data/__init__.py` - DataFrame type
 - chap_r_sdk: `/Users/knutdr/Sources/chap_r_sdk/`
