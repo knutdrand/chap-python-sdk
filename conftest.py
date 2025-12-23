@@ -22,6 +22,7 @@ from chap_python_sdk.testing import (
     assert_samples_column,
     assert_time_location_columns,
     assert_valid_predictions,
+    assert_wide_format_predictions,
     detect_prediction_format,
     generate_example_data,
     generate_run_info,
@@ -68,6 +69,7 @@ def pytest_markdown_docs_globals() -> dict[str, Any]:
         "assert_samples_column": assert_samples_column,
         "assert_time_location_columns": assert_time_location_columns,
         "assert_valid_predictions": assert_valid_predictions,
+        "assert_wide_format_predictions": assert_wide_format_predictions,
         # Prediction functions
         "detect_prediction_format": detect_prediction_format,
         "has_prediction_samples": has_prediction_samples,

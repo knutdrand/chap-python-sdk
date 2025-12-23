@@ -12,6 +12,7 @@ Models are defined as async functions following the chapkit functional interface
 async def on_train(
     config: BaseConfig,
     data: DataFrame,
+    run_info: RunInfo | None = None,
     geo: FeatureCollection | None = None,
 ) -> Any:
     """Train a model and return the trained model object (must be pickleable)."""
@@ -27,6 +28,7 @@ async def on_predict(
     model: Any,
     historic: DataFrame,
     future: DataFrame,
+    run_info: RunInfo | None = None,
     geo: FeatureCollection | None = None,
 ) -> DataFrame:
     """Make predictions using a trained model and return predictions as DataFrame."""
@@ -51,12 +53,24 @@ from chap_python_sdk.testing import TrainFunction, PredictFunction
 
 Use `validate_model_io` to test your model against example data:
 
-```python notest
-from chap_python_sdk.testing import get_example_data, validate_model_io
+```python
+import asyncio
+
+# Define model functions
+async def on_train(config, data, run_info=None, geo=None):
+    return {"mean": 10.0}
+
+async def on_predict(config, model, historic, future, run_info=None, geo=None):
+    samples = [[model["mean"]] * 10 for _ in range(len(future))]
+    return DataFrame.from_dict({
+        "time_period": list(future["time_period"]),
+        "location": list(future["location"]),
+        "samples": samples,
+    })
 
 example_data = get_example_data(country="laos", frequency="monthly")
 
-result = await validate_model_io(on_train, on_predict, example_data, config)
+result = asyncio.run(validate_model_io(on_train, on_predict, example_data))
 
 if result.success:
     print(f"Validation passed with {result.n_predictions} predictions")
@@ -152,17 +166,14 @@ async def test_my_model(laos_monthly_data: ExampleData):
 
 The SDK supports passing runtime information to models via `RunInfo`:
 
-```python notest
-from chap_python_sdk.testing import RunInfo
-
+```python
 run_info = RunInfo(
     prediction_length=3,
     additional_continuous_covariates=["extra_covariate"],
 )
 
-result = await validate_model_io(
-    on_train, on_predict, example_data, config, run_info=run_info
-)
+# RunInfo can be passed to validate_model_io
+assert run_info.prediction_length == 3
 ```
 
 ## Next Steps

@@ -25,10 +25,34 @@ config = DataGenerationConfig(
 example_data = generate_test_data(service_info, config)
 ```
 
-To use in validation (async context required):
+To use in validation with `asyncio.run()`:
 
-```python notest
-result = await validate_model_io(on_train, on_predict, example_data, my_config)
+```python
+import asyncio
+
+# Generate test data
+service_info = MLServiceInfo(
+    required_covariates=["rainfall"],
+    allow_free_additional_continuous_covariates=False,
+    supported_period_type=PeriodType.month,
+)
+example_data = generate_test_data(service_info, DataGenerationConfig(seed=42))
+
+# Define simple model functions
+async def on_train(config, data, run_info=None, geo=None):
+    return {"mean": 10.0}
+
+async def on_predict(config, model, historic, future, run_info=None, geo=None):
+    samples = [[model["mean"]] * 10 for _ in range(len(future))]
+    return DataFrame.from_dict({
+        "time_period": list(future["time_period"]),
+        "location": list(future["location"]),
+        "samples": samples,
+    })
+
+# Run validation
+result = asyncio.run(validate_model_io(on_train, on_predict, example_data))
+assert result.success
 ```
 
 ## MLServiceInfo

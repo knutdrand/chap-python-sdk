@@ -8,8 +8,12 @@ The SDK provides assertion helpers for validating model predictions.
 
 The main validation function that performs all checks:
 
-```python notest
-from chap_python_sdk.testing import assert_valid_predictions
+```python
+predictions = DataFrame.from_dict({
+    "time_period": ["2013-04"] * 21,
+    "location": ["Bokeo"] * 21,
+    "samples": [[10.0, 12.0, 11.0]] * 21,
+})
 
 assert_valid_predictions(predictions, expected_rows=21)
 ```
@@ -28,8 +32,17 @@ This calls multiple underlying assertions to validate:
 
 Verify predictions match the expected shape:
 
-```python notest
-from chap_python_sdk.testing import assert_prediction_shape
+```python
+predictions = DataFrame.from_dict({
+    "time_period": ["2013-04", "2013-05"],
+    "location": ["Bokeo", "Bokeo"],
+    "samples": [[10.0, 12.0], [11.0, 13.0]],
+})
+
+future_data = DataFrame.from_dict({
+    "time_period": ["2013-04", "2013-05"],
+    "location": ["Bokeo", "Bokeo"],
+})
 
 assert_prediction_shape(predictions, future_data)
 ```
@@ -38,8 +51,12 @@ assert_prediction_shape(predictions, future_data)
 
 Validate the samples column contains valid numeric lists:
 
-```python notest
-from chap_python_sdk.testing import assert_samples_column
+```python
+predictions = DataFrame.from_dict({
+    "time_period": ["2013-04"],
+    "location": ["Bokeo"],
+    "samples": [[10.0, 12.0, 11.0]],
+})
 
 assert_samples_column(predictions, min_samples=1)
 ```
@@ -48,8 +65,12 @@ assert_samples_column(predictions, min_samples=1)
 
 Ensure all rows have the same number of samples:
 
-```python notest
-from chap_python_sdk.testing import assert_consistent_sample_counts
+```python
+predictions = DataFrame.from_dict({
+    "time_period": ["2013-04", "2013-05"],
+    "location": ["Bokeo", "Bokeo"],
+    "samples": [[10.0, 12.0, 11.0], [15.0, 17.0, 16.0]],
+})
 
 assert_consistent_sample_counts(predictions)
 ```
@@ -58,8 +79,12 @@ assert_consistent_sample_counts(predictions)
 
 Type checking for sample values:
 
-```python notest
-from chap_python_sdk.testing import assert_numeric_samples
+```python
+predictions = DataFrame.from_dict({
+    "time_period": ["2013-04"],
+    "location": ["Bokeo"],
+    "samples": [[10.0, 12.0, 11.0]],
+})
 
 assert_numeric_samples(predictions)
 ```
@@ -68,8 +93,12 @@ assert_numeric_samples(predictions)
 
 Verify required columns are present:
 
-```python notest
-from chap_python_sdk.testing import assert_time_location_columns
+```python
+predictions = DataFrame.from_dict({
+    "time_period": ["2013-04"],
+    "location": ["Bokeo"],
+    "samples": [[10.0, 12.0]],
+})
 
 assert_time_location_columns(predictions)
 ```
@@ -78,8 +107,14 @@ assert_time_location_columns(predictions)
 
 Validate wide format predictions:
 
-```python notest
-from chap_python_sdk.testing import assert_wide_format_predictions
+```python
+wide_predictions = DataFrame.from_dict({
+    "time_period": ["2013-04", "2013-05"],
+    "location": ["Bokeo", "Bokeo"],
+    "sample_0": [10.0, 15.0],
+    "sample_1": [12.0, 17.0],
+    "sample_2": [11.0, 16.0],
+})
 
 assert_wide_format_predictions(wide_predictions)
 ```
@@ -88,8 +123,12 @@ assert_wide_format_predictions(wide_predictions)
 
 Verify all predictions are non-negative:
 
-```python notest
-from chap_python_sdk.testing import assert_nonnegative_predictions
+```python
+predictions = DataFrame.from_dict({
+    "time_period": ["2013-04"],
+    "location": ["Bokeo"],
+    "samples": [[10.0, 12.0, 11.0]],
+})
 
 assert_nonnegative_predictions(predictions)
 ```
@@ -98,8 +137,12 @@ assert_nonnegative_predictions(predictions)
 
 Check for missing values:
 
-```python notest
-from chap_python_sdk.testing import assert_no_nan_predictions
+```python
+predictions = DataFrame.from_dict({
+    "time_period": ["2013-04"],
+    "location": ["Bokeo"],
+    "samples": [[10.0, 12.0, 11.0]],
+})
 
 assert_no_nan_predictions(predictions)
 ```
@@ -108,8 +151,12 @@ assert_no_nan_predictions(predictions)
 
 All assertion failures raise `PredictionValidationError`:
 
-```python notest
-from chap_python_sdk.testing import PredictionValidationError
+```python
+predictions = DataFrame.from_dict({
+    "time_period": ["2013-04"],
+    "location": ["Bokeo"],
+    # Missing samples - will fail validation
+})
 
 try:
     assert_valid_predictions(predictions)
