@@ -30,7 +30,8 @@ build-backend = "hatchling.build"
 packages = ["src/chap_python_sdk"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "docs"]
+addopts = ["--markdown-docs"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 

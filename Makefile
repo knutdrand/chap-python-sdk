@@ -1,4 +1,4 @@
-.PHONY: lint format check test test-docs coverage clean install dev
+.PHONY: lint format check test coverage clean install dev
 
 # Install dependencies
 install:
@@ -23,17 +23,13 @@ check:
 	uv run mypy src tests
 	uv run pyright src tests
 
-# Run tests
+# Run tests (includes unit tests and documentation tests)
 test:
-	uv run pytest tests -v
-
-# Run documentation tests
-test-docs:
-	uv run pytest --markdown-docs docs/ -v
+	uv run pytest -v
 
 # Run tests with coverage
 coverage:
-	uv run pytest tests -v --cov=src/chap_python_sdk --cov-report=term-missing --cov-report=html
+	uv run pytest -v --cov=src/chap_python_sdk --cov-report=term-missing --cov-report=html
 
 # Clean build artifacts
 clean:
