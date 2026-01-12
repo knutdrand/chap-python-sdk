@@ -75,9 +75,9 @@ assert result.n_samples >= 1
 
 For pytest, use the async pattern:
 
-```python-nt
+```python
 @pytest.mark.asyncio
-async def test_my_model():
+async def test_quickstart_model():
     """Test my model against example data."""
     result = await validate_model_io(my_train, my_predict, example_data, config)
     assert result.success

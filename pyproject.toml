@@ -5,12 +5,35 @@ description = "Validation and testing framework for chapkit models"
 readme = "README.md"
 requires-python = ">=3.13"
 license = "AGPL-3.0-or-later"
+keywords = ["chapkit", "climate", "health", "machine-learning", "testing", "validation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Software Development :: Testing",
+    "Typing :: Typed",
+]
+
 dependencies = [
     "chapkit",
     "pydantic>=2.0",
     "pyyaml>=6.0",
     "geojson-pydantic>=1.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/knutdrand/chap-python-sdk"
+Documentation = "https://knutdrand.github.io/chap-python-sdk/"
+Repository = "https://github.com/knutdrand/chap-python-sdk.git"
+Issues = "https://github.com/knutdrand/chap-python-sdk/issues"
+
+[project.scripts]
+chap-sdk = "chap_python_sdk.cli:main"
 
 [project.optional-dependencies]
 dev = [
@@ -28,6 +51,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/chap_python_sdk"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/chap_python_sdk/template" = "chap_python_sdk/template"
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "docs"]

@@ -1,0 +1,5 @@
+"""{{project_name}} - A chapkit model."""
+
+from {{project_name_underscore}}.model import {{project_name_class}}Config, predict, train
+
+__all__ = ["{{project_name_class}}Config", "predict", "train"]

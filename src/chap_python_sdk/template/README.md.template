@@ -1,0 +1,52 @@
+# {{project_name}}
+
+A chapkit model created with chap-python-sdk.
+
+## Installation
+
+```bash
+# Install with uv (recommended)
+uv sync
+
+# Or with pip
+pip install -e ".[dev]"
+```
+
+## Usage
+
+```python
+import asyncio
+from chap_python_sdk.testing import get_example_data, validate_model_io
+from {{project_name_underscore}}.model import train, predict, {{project_name_class}}Config
+
+# Load example data
+example_data = get_example_data(country="laos", frequency="monthly")
+config = {{project_name_class}}Config()
+
+# Validate model
+result = asyncio.run(validate_model_io(train, predict, example_data, config))
+print(f"Validation: {'PASSED' if result.success else 'FAILED'}")
+```
+
+## Testing
+
+```bash
+# Run tests
+pytest
+
+# Run with coverage
+pytest --cov={{project_name_underscore}}
+```
+
+## Development
+
+```bash
+# Format code
+ruff format src tests
+
+# Lint code
+ruff check src tests
+
+# Type check
+mypy src
+```

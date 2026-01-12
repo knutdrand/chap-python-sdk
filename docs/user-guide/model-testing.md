@@ -127,11 +127,7 @@ predictions = DataFrame.from_dict({
 
 ### Basic Test
 
-```python-nt
-import pytest
-from chap_python_sdk.testing import get_example_data, validate_model_io
-
-
+```python
 @pytest.mark.asyncio
 async def test_my_model():
     """Test my model against example data."""
@@ -144,11 +140,7 @@ async def test_my_model():
 
 ### Using Fixtures
 
-```python-nt
-import pytest
-from chap_python_sdk.testing import get_example_data, ExampleData
-
-
+```python
 @pytest.fixture
 def laos_monthly_data() -> ExampleData:
     """Load Laos monthly example data."""
@@ -156,7 +148,7 @@ def laos_monthly_data() -> ExampleData:
 
 
 @pytest.mark.asyncio
-async def test_my_model(laos_monthly_data: ExampleData):
+async def test_my_model_with_fixture(laos_monthly_data: ExampleData):
     """Test my model against Laos data."""
     result = await validate_model_io(my_train, my_predict, laos_monthly_data)
     assert result.success
