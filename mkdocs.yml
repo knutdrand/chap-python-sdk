@@ -49,6 +49,9 @@ markdown_extensions:
       anchor_linenums: true
       line_spans: __span
       pygments_lang_class: true
+      extend_pygments_lang:
+        - name: python-nt
+          lang: python
   - pymdownx.inlinehilite
   - pymdownx.snippets
   - pymdownx.superfences

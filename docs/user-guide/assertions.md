@@ -168,7 +168,7 @@ except PredictionValidationError as e:
 
 ### Basic Test
 
-```python notest
+```python-nt
 import pytest
 from chap_python_sdk.testing import (
     assert_valid_predictions,
@@ -201,7 +201,7 @@ with pytest.raises(PredictionValidationError):
 
 ### Selective Validation
 
-```python notest
+```python-nt
 def test_prediction_structure():
     """Test specific aspects of predictions."""
     predictions = model.predict(data)

@@ -162,7 +162,7 @@ summary = predictions_summary(predictions)
 
 ## Example Workflow
 
-```python notest
+```python-nt
 from chap_python_sdk.testing import (
     detect_prediction_format,
     predictions_from_wide,

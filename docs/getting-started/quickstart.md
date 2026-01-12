@@ -75,7 +75,7 @@ assert result.n_samples >= 1
 
 For pytest, use the async pattern:
 
-```python notest
+```python-nt
 @pytest.mark.asyncio
 async def test_my_model():
     """Test my model against example data."""
@@ -87,7 +87,7 @@ async def test_my_model():
 
 If you prefer to bundle your functions into a runner object:
 
-```python notest
+```python-nt
 from chapkit import FunctionalModelRunner
 
 runner = FunctionalModelRunner(on_train=my_train, on_predict=my_predict)

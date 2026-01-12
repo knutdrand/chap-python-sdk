@@ -139,7 +139,7 @@ example_data = generate_example_data(service_info, run_info, config)
 
 If your model exports its `MLServiceInfo`, you can use it directly:
 
-```python notest
+```python-nt
 from main import info  # Your model's declared MLServiceInfo
 
 from chap_python_sdk.testing import (

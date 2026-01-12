@@ -8,7 +8,7 @@ Models are defined as async functions following the chapkit functional interface
 
 ### Train Function
 
-```python notest
+```python-nt
 async def on_train(
     config: BaseConfig,
     data: DataFrame,
@@ -22,7 +22,7 @@ async def on_train(
 
 ### Predict Function
 
-```python notest
+```python-nt
 async def on_predict(
     config: BaseConfig,
     model: Any,
@@ -94,7 +94,7 @@ The validation returns a `ValidationResult` object:
 
 To validate against multiple datasets:
 
-```python notest
+```python-nt
 from chap_python_sdk.testing import validate_model_io_all
 
 results = await validate_model_io_all(on_train, on_predict, config)
@@ -127,7 +127,7 @@ predictions = DataFrame.from_dict({
 
 ### Basic Test
 
-```python notest
+```python-nt
 import pytest
 from chap_python_sdk.testing import get_example_data, validate_model_io
 
@@ -144,7 +144,7 @@ async def test_my_model():
 
 ### Using Fixtures
 
-```python notest
+```python-nt
 import pytest
 from chap_python_sdk.testing import get_example_data, ExampleData
 
