@@ -25,7 +25,7 @@ dependencies = [
     "pyyaml>=6.0",
     "geojson-pydantic>=1.0",
     "cyclopts>=4.4.4",
-    "numpy>=2.4.1",
+    "numpy>=2.0",
     "pandas>=2.3.3",
 ]
 
