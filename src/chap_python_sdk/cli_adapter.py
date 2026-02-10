@@ -85,12 +85,17 @@ def create_cli_app(
         else:
             predictions = predict_func(config, model, historic, future)
 
+        # Convert nested samples column to wide format (sample_0, sample_1, ...)
+        if "samples" in predictions.columns:
+            samples_list = predictions["samples"].tolist()
+            predictions = predictions.drop(columns=["samples"])
+            if samples_list:
+                n_samples = len(samples_list[0])
+                for i in range(n_samples):
+                    predictions[f"sample_{i}"] = [row[i] for row in samples_list]
+
         # Save predictions
-        if hasattr(predictions, "to_csv"):
-            predictions.to_csv(output, index=False)
-        else:
-            # Handle if predictions is already a pandas DataFrame
-            predictions.to_csv(output, index=False)
+        predictions.to_csv(output, index=False)
 
         print(f"Predictions saved to {output}")
 
