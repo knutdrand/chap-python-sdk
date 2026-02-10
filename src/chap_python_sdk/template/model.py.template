@@ -2,50 +2,40 @@
 
 from typing import Any
 
-from chapkit.config.schemas import BaseConfig
-from chapkit.data import DataFrame
-from geojson_pydantic import FeatureCollection
-from pydantic import Field
-
-from chap_python_sdk.testing import RunInfo
+import pandas as pd
+from pydantic import BaseModel, Field
 
 
-class {{project_name_class}}Config(BaseConfig):
+class {{project_name_class}}Config(BaseModel):
     """Configuration for {{project_name}}."""
 
     n_samples: int = Field(default=10, description="Number of prediction samples")
 
 
-async def train(
-    config: BaseConfig,
-    data: DataFrame,
-    run_info: RunInfo | None = None,
-    geo: FeatureCollection | None = None,
+def train(
+    config: {{project_name_class}}Config,
+    data: pd.DataFrame,
 ) -> dict[str, float]:
     """Train the model.
 
     Args:
         config: Model configuration.
-        data: Training data with time_period, location, and covariate columns.
-        run_info: Runtime information including prediction_length.
-        geo: Optional GeoJSON feature collection for geographic data.
+        data: Training data with time_period, location, and disease_cases columns.
 
     Returns:
         Trained model object (must be pickleable).
     """
     # Example: compute mean of disease_cases
-    mean_value = sum(data["disease_cases"]) / len(data["disease_cases"])
-    return {"mean": mean_value}
+    mean_value = data["disease_cases"].mean()
+    return {"mean": float(mean_value)}
 
 
-async def predict(
-    config: BaseConfig,
+def predict(
+    config: {{project_name_class}}Config,
     model: dict[str, float],
-    historic: DataFrame,
-    future: DataFrame,
-    run_info: RunInfo | None = None,
-    geo: FeatureCollection | None = None,
-) -> DataFrame:
+    historic: pd.DataFrame,
+    future: pd.DataFrame,
+) -> pd.DataFrame:
     """Generate predictions.
 
     Args:
@@ -53,19 +43,14 @@ async def predict(
         model: Trained model object from train().
         historic: Recent historical data.
         future: Future periods to predict (time_period, location columns).
-        run_info: Runtime information.
-        geo: Optional GeoJSON feature collection.
 
     Returns:
         DataFrame with time_period, location, and samples columns.
     """
-    n_samples = config.n_samples if hasattr(config, "n_samples") else 10
-
     # Generate samples around the mean
-    samples_list = [[model["mean"]] * n_samples for _ in range(len(future))]
+    predictions = future.copy()
+    predictions["samples"] = [
+        [model["mean"]] * config.n_samples for _ in range(len(future))
+    ]
 
-    return DataFrame.from_dict({
-        "time_period": list(future["time_period"]),
-        "location": list(future["location"]),
-        "samples": samples_list,
-    })
+    return predictions

@@ -1,6 +1,6 @@
 # {{project_name}}
 
-A chapkit model created with chap-python-sdk.
+A CHAP-compatible disease forecasting model created with chap-python-sdk.
 
 ## Installation
 
@@ -14,18 +14,55 @@ pip install -e ".[dev]"
 
 ## Usage
 
+### CLI
+
+Train and predict using the command-line interface:
+
+```bash
+# Train model
+uv run {{project_name}} train-cmd train_data.csv model.pkl
+
+# Generate predictions
+uv run {{project_name}} predict-cmd model.pkl historic.csv future.csv predictions.csv
+
+# Or use directly with python -m
+uv run python -m {{project_name_underscore}}.cli train-cmd train_data.csv model.pkl
+```
+
+### Python API
+
 ```python
-import asyncio
-from chap_python_sdk.testing import get_example_data, validate_model_io
+import pandas as pd
 from {{project_name_underscore}}.model import train, predict, {{project_name_class}}Config
 
-# Load example data
-example_data = get_example_data(country="laos", frequency="monthly")
-config = {{project_name_class}}Config()
+# Prepare training data
+train_data = pd.DataFrame({
+    "time_period": [1, 2, 3, 4, 5],
+    "location": ["A", "A", "A", "A", "A"],
+    "disease_cases": [10, 15, 12, 18, 20],
+})
 
-# Validate model
-result = asyncio.run(validate_model_io(train, predict, example_data, config))
-print(f"Validation: {'PASSED' if result.success else 'FAILED'}")
+# Train model
+config = {{project_name_class}}Config(n_samples=100)
+model = train(config, train_data)
+
+# Generate predictions
+future_data = pd.DataFrame({
+    "time_period": [6, 7],
+    "location": ["A", "A"],
+})
+historic_data = train_data  # Recent history for context
+
+predictions = predict(config, model, historic_data, future_data)
+print(predictions)
+```
+
+### CHAP Integration
+
+This model can be used with CHAP via the `MLproject` file:
+
+```bash
+chap evaluate --model-name /path/to/{{project_name}} --dataset-name ISIMIP_dengue_harmonized
 ```
 
 ## Testing

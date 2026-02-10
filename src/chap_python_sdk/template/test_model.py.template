@@ -1,45 +1,76 @@
 """Tests for {{project_name}} model."""
 
-import pytest
-
-from chap_python_sdk.testing import get_example_data, validate_model_io
+import pandas as pd
 
 from {{project_name_underscore}}.model import {{project_name_class}}Config, predict, train
 
 
-@pytest.mark.asyncio
-async def test_model_with_laos_monthly_data() -> None:
-    """Test model against Laos monthly example data."""
-    example_data = get_example_data(country="laos", frequency="monthly")
+def test_train_basic() -> None:
+    """Test basic training functionality."""
+    # Create sample training data
+    train_data = pd.DataFrame({
+        "time_period": [1, 2, 3, 4, 5],
+        "location": ["A", "A", "A", "A", "A"],
+        "disease_cases": [10, 15, 12, 18, 20],
+    })
+
     config = {{project_name_class}}Config()
+    model = train(config, train_data)
 
-    result = await validate_model_io(train, predict, example_data, config)
-
-    assert result.success, f"Validation failed: {result.errors}"
-    assert result.n_predictions > 0
-    assert result.n_samples >= 1
+    assert "mean" in model
+    assert isinstance(model["mean"], float)
 
 
-@pytest.mark.asyncio
-async def test_model_predictions_shape() -> None:
-    """Test that predictions have the correct shape."""
-    example_data = get_example_data(country="laos", frequency="monthly")
-    config = {{project_name_class}}Config()
+def test_predict_basic() -> None:
+    """Test basic prediction functionality."""
+    # Create sample data
+    historic_data = pd.DataFrame({
+        "time_period": [1, 2, 3],
+        "location": ["A", "A", "A"],
+        "disease_cases": [10, 15, 12],
+    })
 
-    # Train the model
-    model = await train(config, example_data.training_data, example_data.run_info)
+    future_data = pd.DataFrame({
+        "time_period": [4, 5],
+        "location": ["A", "A"],
+    })
+
+    config = {{project_name_class}}Config(n_samples=5)
+
+    # Train model
+    model = train(config, historic_data)
 
     # Generate predictions
-    predictions = await predict(
-        config,
-        model,
-        example_data.historic_data,
-        example_data.future_data,
-        example_data.run_info,
-    )
+    predictions = predict(config, model, historic_data, future_data)
 
-    # Check predictions shape matches future data
-    assert len(predictions) == len(example_data.future_data)
+    # Verify predictions
+    assert len(predictions) == len(future_data)
+    assert "samples" in predictions.columns
+    assert all(len(samples) == 5 for samples in predictions["samples"])
+
+
+def test_predict_multiple_locations() -> None:
+    """Test predictions with multiple locations."""
+    # Create sample data with multiple locations
+    historic_data = pd.DataFrame({
+        "time_period": [1, 1, 2, 2, 3, 3],
+        "location": ["A", "B", "A", "B", "A", "B"],
+        "disease_cases": [10, 20, 15, 25, 12, 22],
+    })
+
+    future_data = pd.DataFrame({
+        "time_period": [4, 4, 5, 5],
+        "location": ["A", "B", "A", "B"],
+    })
+
+    config = {{project_name_class}}Config(n_samples=10)
+
+    # Train and predict
+    model = train(config, historic_data)
+    predictions = predict(config, model, historic_data, future_data)
+
+    # Verify predictions
+    assert len(predictions) == len(future_data)
     assert "time_period" in predictions.columns
     assert "location" in predictions.columns
     assert "samples" in predictions.columns

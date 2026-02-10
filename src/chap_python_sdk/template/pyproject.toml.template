@@ -1,17 +1,20 @@
 [project]
 name = "{{project_name}}"
 version = "0.1.0"
-description = "A chapkit model"
+description = "A CHAP model"
 requires-python = ">=3.13"
 dependencies = [
-    "chapkit",
-    "chap-python-sdk",
+    "pandas>=2.0",
+    "pydantic>=2.0",
+    "cyclopts>=4.0",
 ]
+
+[project.scripts]
+{{project_name}} = "{{project_name_underscore}}.cli:main"
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
-    "pytest-asyncio>=0.23",
     "mypy>=1.11",
     "ruff>=0.5",
 ]
