@@ -31,8 +31,12 @@ def chapkit_to_wide(
     target_wide = df.pivot(index="time_period", columns="location", values=target_variable)
     target_wide = target_wide.sort_index()
 
+    # Fill missing values (forward-fill then back-fill) for time series continuity
+    target_wide = target_wide.ffill().bfill()
+
     # Infer frequency for the DatetimeIndex (required by skforecast)
-    target_wide.index.freq = pd.infer_freq(target_wide.index)
+    if len(target_wide.index) >= 3:
+        target_wide.index.freq = pd.infer_freq(target_wide.index)
 
     # Pivot exogenous variables if specified
     exog_wide = None
@@ -49,6 +53,41 @@ def chapkit_to_wide(
             exog_wide = exog_wide.sort_index()
 
     return target_wide, exog_wide
+
+
+def exog_to_wide(
+    data: DataFrame,
+    exogenous_variables: list[str],
+) -> pd.DataFrame | None:
+    """Extract exogenous variables in wide format from a chapkit DataFrame.
+
+    Unlike chapkit_to_wide, this does not require a target variable column.
+
+    Args:
+        data: chapkit DataFrame with time_period, location, and exogenous columns
+        exogenous_variables: List of exogenous variable column names
+
+    Returns:
+        DataFrame with exogenous variables in wide format, or None if no variables found
+    """
+    df = data.to_pandas()
+    df["time_period"] = pd.to_datetime(df["time_period"])
+
+    exog_dfs = []
+    for var in exogenous_variables:
+        if var not in df.columns:
+            continue
+        var_wide = df.pivot(index="time_period", columns="location", values=var)
+        var_wide.columns = [f"{var}_{col}" for col in var_wide.columns]
+        exog_dfs.append(var_wide)
+
+    if exog_dfs:
+        exog_wide = pd.concat(exog_dfs, axis=1)
+        exog_wide = exog_wide.sort_index()
+        if len(exog_wide.index) >= 3:
+            exog_wide.index.freq = pd.infer_freq(exog_wide.index)  # pyright: ignore[reportAttributeAccessIssue, reportArgumentType]
+        return exog_wide
+    return None
 
 
 def wide_to_chapkit(
@@ -83,7 +122,7 @@ def wide_to_chapkit(
             samples = pred_df.iloc[i].tolist()
             results.append(
                 {
-                    "time_period": pd.Timestamp(time_period).isoformat(),
+                    "time_period": str(pd.Timestamp(time_period).isoformat()),  # pyright: ignore[reportAttributeAccessIssue]
                     "location": location,
                     "samples": samples,
                 }

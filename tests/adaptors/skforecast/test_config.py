@@ -15,12 +15,20 @@ class TestSkforecastConfig:
         config = SkforecastConfig()
 
         assert config.lags == 12
-        assert config.n_samples == 100
+        assert config.n_samples == 200
         assert config.use_bootstrapping is True
         assert config.exogenous_variables is None
-        assert config.model_class == "sklearn.ensemble.RandomForestRegressor"
-        assert config.model_params == {}
+        assert config.model_class == "sklearn.ensemble.GradientBoostingRegressor"
+        assert config.model_params["n_estimators"] == 100
+        assert config.model_params["max_depth"] == 3
+        assert config.model_params["learning_rate"] == 0.1
+        assert config.model_params["min_samples_leaf"] == 3
+        assert config.model_params["random_state"] == 42
         assert config.encoding == "onehot"
+        assert config.differentiation == 1
+        assert config.transformer_series == "StandardScaler"
+        assert config.refit_on_predict is True
+        assert config.n_prediction_steps == 3
 
     def test_custom_lags_int(self) -> None:
         """Test configuration with integer lags."""
@@ -70,3 +78,39 @@ class TestSkforecastConfig:
         config = SkforecastConfig(use_bootstrapping=False)
 
         assert config.use_bootstrapping is False
+
+    def test_differentiation_none(self) -> None:
+        """Test disabling differentiation."""
+        config = SkforecastConfig(differentiation=None)
+
+        assert config.differentiation is None
+
+    def test_differentiation_custom(self) -> None:
+        """Test custom differentiation order."""
+        config = SkforecastConfig(differentiation=2)
+
+        assert config.differentiation == 2
+
+    def test_transformer_series_none(self) -> None:
+        """Test disabling transformer."""
+        config = SkforecastConfig(transformer_series=None)
+
+        assert config.transformer_series is None
+
+    def test_transformer_series_custom(self) -> None:
+        """Test custom transformer name."""
+        config = SkforecastConfig(transformer_series="MinMaxScaler")
+
+        assert config.transformer_series == "MinMaxScaler"
+
+    def test_refit_on_predict_disabled(self) -> None:
+        """Test disabling refit on predict."""
+        config = SkforecastConfig(refit_on_predict=False)
+
+        assert config.refit_on_predict is False
+
+    def test_n_prediction_steps_custom(self) -> None:
+        """Test custom prediction steps."""
+        config = SkforecastConfig(n_prediction_steps=5)
+
+        assert config.n_prediction_steps == 5

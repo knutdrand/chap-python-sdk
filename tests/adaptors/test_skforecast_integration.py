@@ -33,7 +33,11 @@ class TestSkforecastIntegration:
     @pytest.mark.asyncio
     async def test_basic_train_predict_cycle(self) -> None:
         """Test basic training and prediction with skforecast."""
-        config = SkforecastConfig(lags=3, n_samples=20, model_params={"n_estimators": 10, "random_state": 42})
+        config = SkforecastConfig(
+            lags=3,
+            n_samples=20,
+            model_params={"n_estimators": 10, "random_state": 42},
+        )
 
         train_function, predict_function = create_skforecast_functions(config)
 
@@ -54,7 +58,7 @@ class TestSkforecastIntegration:
         config = SkforecastConfig(
             lags=6,
             n_samples=30,
-            exogenous_variables=["rainfall", "temperature_mean"],
+            exogenous_variables=["rainfall", "mean_temperature"],
             model_params={"n_estimators": 20, "random_state": 42},
         )
 
@@ -73,9 +77,12 @@ class TestSkforecastIntegration:
 
     @pytest.mark.asyncio
     async def test_with_ridge_regression(self) -> None:
-        """Test skforecast with Ridge regression instead of RandomForest."""
+        """Test skforecast with Ridge regression instead of GradientBoosting."""
         config = SkforecastConfig(
-            lags=4, n_samples=25, model_class="sklearn.linear_model.Ridge", model_params={"alpha": 1.0}
+            lags=4,
+            n_samples=25,
+            model_class="sklearn.linear_model.Ridge",
+            model_params={"alpha": 1.0},
         )
 
         train_function, predict_function = create_skforecast_functions(config)
@@ -95,7 +102,9 @@ class TestSkforecastIntegration:
     async def test_with_list_lags(self) -> None:
         """Test skforecast with specific lag selection."""
         config = SkforecastConfig(
-            lags=[1, 3, 6, 12], n_samples=15, model_params={"n_estimators": 15, "random_state": 42}
+            lags=[1, 3, 6, 12],
+            n_samples=15,
+            model_params={"n_estimators": 15, "random_state": 42},
         )
 
         train_function, predict_function = create_skforecast_functions(config)
@@ -125,12 +134,16 @@ class TestSkforecastIntegration:
         )
 
         assert result.success
-        assert result.n_samples == 100
+        assert result.n_samples == 200
 
     @pytest.mark.asyncio
     async def test_predictions_are_nonnegative(self) -> None:
         """Test that predictions are non-negative."""
-        config = SkforecastConfig(lags=6, n_samples=50, model_params={"n_estimators": 10, "random_state": 42})
+        config = SkforecastConfig(
+            lags=6,
+            n_samples=50,
+            model_params={"n_estimators": 10, "random_state": 42},
+        )
 
         train_function, predict_function = create_skforecast_functions(config)
 
@@ -147,7 +160,11 @@ class TestSkforecastIntegration:
     @pytest.mark.asyncio
     async def test_multiple_locations(self) -> None:
         """Test that skforecast works with multiple locations."""
-        config = SkforecastConfig(lags=4, n_samples=20, model_params={"n_estimators": 10, "random_state": 42})
+        config = SkforecastConfig(
+            lags=4,
+            n_samples=20,
+            model_params={"n_estimators": 10, "random_state": 42},
+        )
 
         train_function, predict_function = create_skforecast_functions(config)
 
@@ -166,7 +183,10 @@ class TestSkforecastIntegration:
     async def test_predictions_have_variability(self) -> None:
         """Test that prediction samples have variability."""
         config = SkforecastConfig(
-            lags=6, n_samples=100, use_bootstrapping=True, model_params={"n_estimators": 20, "random_state": 42}
+            lags=6,
+            n_samples=100,
+            use_bootstrapping=True,
+            model_params={"n_estimators": 20, "random_state": 42},
         )
 
         train_function, predict_function = create_skforecast_functions(config)

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Annotated, Any, Callable
 
 import cyclopts
-import pandas as pd
+import pandas as pd  # type: ignore[import-untyped]
 
 
 def create_cli_app(
@@ -37,7 +37,7 @@ def create_cli_app(
     )
 
     @app.command
-    def train_cmd(
+    def train_cmd(  # pyright: ignore[reportUnusedFunction]
         train_data: Annotated[Path, cyclopts.Parameter(help="Path to training data CSV")],
         model_output: Annotated[Path, cyclopts.Parameter(help="Path to save trained model (pickle)")],
     ) -> None:
@@ -61,7 +61,7 @@ def create_cli_app(
         print(f"Model trained and saved to {model_output}")
 
     @app.command
-    def predict_cmd(
+    def predict_cmd(  # pyright: ignore[reportUnusedFunction]
         model_path: Annotated[Path, cyclopts.Parameter(help="Path to trained model (pickle)")],
         historic_data: Annotated[Path, cyclopts.Parameter(help="Path to historic data CSV")],
         future_data: Annotated[Path, cyclopts.Parameter(help="Path to future periods CSV")],

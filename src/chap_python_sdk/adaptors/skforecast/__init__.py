@@ -10,7 +10,7 @@ try:
 
     SKFORECAST_AVAILABLE = True
 except ImportError:
-    SKFORECAST_AVAILABLE = False
+    SKFORECAST_AVAILABLE = False  # pyright: ignore[reportConstantRedefinition]
     ForecasterRecursiveMultiSeries = None
 
 from .config import SkforecastConfig
@@ -41,4 +41,4 @@ def create_skforecast_functions(
         config = SkforecastConfig()
 
     adaptor = SkforecastAdaptor(config)
-    return adaptor.train, adaptor.predict  # type: ignore[return-value]
+    return adaptor.train, adaptor.predict

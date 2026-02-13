@@ -9,7 +9,7 @@ from chapkit.data import DataFrame
 from chap_python_sdk.testing.types import GeoFeatureCollection, RunInfo
 
 from .config import SkforecastConfig
-from .data_transformer import chapkit_to_wide, wide_to_chapkit
+from .data_transformer import chapkit_to_wide, exog_to_wide, wide_to_chapkit
 from .forecaster import SkforecastWrapper
 
 
@@ -53,7 +53,7 @@ class SkforecastAdaptor:
         # Return trained model dict (must be pickleable)
         return {
             "forecaster": self.forecaster_wrapper.forecaster,
-            "residuals": self.forecaster_wrapper.residuals_by_location,
+            "residuals": self.forecaster_wrapper.residuals_by_step,
             "locations": list(target_wide.columns),
             "config": self.config.model_dump(),
         }
@@ -80,19 +80,25 @@ class SkforecastAdaptor:
         geo: GeoFeatureCollection | None,
     ) -> DataFrame:
         """Synchronous prediction logic."""
-        # Restore forecaster from model dict
-        forecaster_wrapper = SkforecastWrapper(SkforecastConfig(**model["config"]))
+        restored_config = SkforecastConfig(**model["config"])
+        forecaster_wrapper = SkforecastWrapper(restored_config)
         forecaster_wrapper.forecaster = model["forecaster"]
-        forecaster_wrapper.residuals_by_location = model["residuals"]
+        forecaster_wrapper.residuals_by_step = model["residuals"]
+
+        # Refit on historic data if configured and target column is available
+        historic_pd = historic.to_pandas()
+        if restored_config.refit_on_predict and "disease_cases" in historic_pd.columns:
+            target_wide, exog_wide = chapkit_to_wide(
+                historic,
+                target_variable="disease_cases",
+                exogenous_variables=restored_config.exogenous_variables,
+            )
+            forecaster_wrapper.refit(target_wide, exog_wide)
 
         # Prepare exogenous data from future if needed
         exog_future = None
         if self.config.exogenous_variables:
-            _, exog_future = chapkit_to_wide(
-                future,
-                target_variable="disease_cases",
-                exogenous_variables=self.config.exogenous_variables,
-            )
+            exog_future = exog_to_wide(future, self.config.exogenous_variables)
 
         # Determine number of steps from future DataFrame
         future_pd = future.to_pandas()
