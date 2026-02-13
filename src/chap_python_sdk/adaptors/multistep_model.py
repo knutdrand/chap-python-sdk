@@ -33,6 +33,25 @@ class OneStepModel(Protocol):
         ...
 
 
+def _build_lag_matrix_xr(y: xr.DataArray, n_lags: int) -> xr.DataArray:
+    """Build lag matrix from DataArray with a time dim.
+
+    Uses xr.shift() which operates across all other dims (e.g. location)
+    simultaneously. No iteration over locations.
+
+    Args:
+        y: DataArray with at least a 'time' dim. May also have 'location'.
+        n_lags: Number of lags.
+
+    Returns:
+        DataArray with an added 'lag' dim, time trimmed by n_lags.
+        Lag order: oldest to newest [y(t-n_lags), ..., y(t-1)].
+    """
+    shifted = [y.shift(time=k) for k in range(n_lags, 0, -1)]
+    lag_matrix = xr.concat(shifted, dim="lag")
+    return lag_matrix.isel(time=slice(n_lags, None))
+
+
 def _build_lag_matrix(y: np.ndarray, n_lags: int) -> xr.DataArray:
     """Build a lag matrix from a 1-d time series.
 
@@ -74,6 +93,74 @@ class MultistepModel:
             features = lags.rename(lag="feature")
 
         self.one_step_model.fit(features.values, y_target)
+
+    def fit_multi(
+        self,
+        y: xr.DataArray,
+        X: xr.DataArray | None = None,
+    ) -> None:
+        """Fit on multi-location data, pooling all locations into one training set.
+
+        Args:
+            y: Target values, dims (location, time).
+            X: Exogenous features, dims (location, time, feature) or None.
+        """
+        lags = _build_lag_matrix_xr(y, self.n_target_lags)  # (lag, location, time')
+        y_target = y.isel(time=slice(self.n_target_lags, None))  # (location, time')
+
+        lags_feat = lags.rename(lag="feature")  # (feature, location, time')
+        if X is not None:
+            X_trimmed = X.isel(time=slice(self.n_target_lags, None))
+            features = xr.concat(
+                [
+                    X_trimmed.transpose("feature", "location", "time"),
+                    lags_feat,
+                ],
+                dim="feature",
+            )
+        else:
+            features = lags_feat
+
+        features_stacked = features.stack(sample=("location", "time"))
+        y_stacked = y_target.stack(sample=("location", "time"))
+
+        self.one_step_model.fit(
+            features_stacked.transpose("sample", "feature").values,
+            y_stacked.values,
+        )
+
+    def predict_multi(
+        self,
+        previous_y: xr.DataArray,
+        n_steps: int,
+        n_samples: int,
+        X: xr.DataArray | None = None,
+    ) -> xr.DataArray:
+        """Generate multi-step forecasts for multiple locations.
+
+        Args:
+            previous_y: Recent observations, dims (location, time), >= n_target_lags timepoints.
+            n_steps: Number of forecast steps.
+            n_samples: Number of sampled trajectories per location.
+            X: Known future exogenous features, dims (location, step, feature) or None.
+
+        Returns:
+            DataArray with dims (location, trajectory, step).
+        """
+        locations = previous_y.coords["location"].values
+        results = []
+        for loc in locations:
+            prev = previous_y.sel(location=loc).values
+            X_loc = X.sel(location=loc).values if X is not None else None
+            dist = self.predict_proba(prev, n_steps, X_loc)
+            samples = dist.sample(n_samples)  # (n_samples, n_steps)
+            results.append(samples)
+
+        return xr.DataArray(
+            np.stack(results),
+            dims=["location", "trajectory", "step"],
+            coords={"location": locations},
+        )
 
     def predict_proba(
         self,

@@ -5,11 +5,13 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
+import xarray as xr
 
 from chap_python_sdk.adaptors.multistep_model import (
     MultistepDistribution,
     MultistepModel,
     _build_lag_matrix,  # pyright: ignore[reportPrivateUsage]
+    _build_lag_matrix_xr,  # pyright: ignore[reportPrivateUsage]
 )
 
 
@@ -220,3 +222,149 @@ class TestMultistepModelEndToEnd:
 
         assert samples.shape == (200, 5)
         assert not np.all(samples == samples[0])
+
+
+class TestBuildLagMatrixXr:
+    """Tests for _build_lag_matrix_xr helper."""
+
+    def test_single_location(self) -> None:
+        """Shape and values match numpy version for a single location."""
+        y_np = np.array([10.0, 20.0, 30.0, 40.0, 50.0])
+        y_xr = xr.DataArray(y_np, dims=["time"])
+
+        result = _build_lag_matrix_xr(y_xr, n_lags=2)
+
+        assert result.dims == ("lag", "time")
+        assert result.shape == (2, 3)
+        # Row 0 (lag=0) for time index 0 predicts y[2]=30, lag is y[0]=10
+        np.testing.assert_array_equal(result.sel(lag=0).values, [10.0, 20.0, 30.0])
+        np.testing.assert_array_equal(result.sel(lag=1).values, [20.0, 30.0, 40.0])
+
+    def test_multi_location(self) -> None:
+        """Verify (lag, location, time) shape and per-location correctness."""
+        data = np.array(
+            [
+                [1.0, 2.0, 3.0, 4.0, 5.0],
+                [10.0, 20.0, 30.0, 40.0, 50.0],
+            ]
+        )
+        y = xr.DataArray(data, dims=["location", "time"])
+
+        result = _build_lag_matrix_xr(y, n_lags=2)
+
+        assert set(result.dims) == {"lag", "location", "time"}
+        assert result.sizes["lag"] == 2
+        assert result.sizes["location"] == 2
+        assert result.sizes["time"] == 3
+
+        # Location 0: lags for the first valid target (y=3)
+        np.testing.assert_array_equal(result.sel(lag=0).isel(location=0).values, [1.0, 2.0, 3.0])
+        np.testing.assert_array_equal(result.sel(lag=1).isel(location=0).values, [2.0, 3.0, 4.0])
+        # Location 1: lags for the first valid target (y=30)
+        np.testing.assert_array_equal(result.sel(lag=0).isel(location=1).values, [10.0, 20.0, 30.0])
+        np.testing.assert_array_equal(result.sel(lag=1).isel(location=1).values, [20.0, 30.0, 40.0])
+
+
+class TestFitMulti:
+    """Tests for MultistepModel.fit_multi."""
+
+    def test_pools_locations(self) -> None:
+        """Pooled sample count = n_locs * (T - n_lags) rows."""
+
+        class RecordingModel:
+            def __init__(self) -> None:
+                self.X_shape: tuple[int, ...] | None = None
+                self.y_shape: tuple[int, ...] | None = None
+
+            def fit(self, X: np.ndarray, y: np.ndarray) -> None:
+                self.X_shape = X.shape
+                self.y_shape = y.shape
+
+            def predict_proba(self, X: np.ndarray) -> Any:
+                pass
+
+        recorder = RecordingModel()
+        ms = MultistepModel(recorder, n_target_lags=2)
+
+        n_locs, T = 3, 10
+        y = xr.DataArray(
+            np.arange(n_locs * T, dtype=float).reshape(n_locs, T),
+            dims=["location", "time"],
+        )
+        ms.fit_multi(y)
+
+        expected_rows = n_locs * (T - 2)  # 3 * 8 = 24
+        assert recorder.X_shape == (expected_rows, 2)
+        assert recorder.y_shape == (expected_rows,)
+
+    def test_with_exog(self) -> None:
+        """Feature count = n_exog + n_lags when exogenous features provided."""
+
+        class RecordingModel:
+            def __init__(self) -> None:
+                self.X_shape: tuple[int, ...] | None = None
+
+            def fit(self, X: np.ndarray, y: np.ndarray) -> None:
+                self.X_shape = X.shape
+
+            def predict_proba(self, X: np.ndarray) -> Any:
+                pass
+
+        recorder = RecordingModel()
+        n_lags = 2
+        ms = MultistepModel(recorder, n_target_lags=n_lags)
+
+        n_locs, T, n_exog = 2, 8, 3
+        y = xr.DataArray(
+            np.arange(n_locs * T, dtype=float).reshape(n_locs, T),
+            dims=["location", "time"],
+        )
+        X = xr.DataArray(
+            np.ones((n_locs, T, n_exog)),
+            dims=["location", "time", "feature"],
+        )
+        ms.fit_multi(y, X)
+
+        expected_rows = n_locs * (T - n_lags)  # 2 * 6 = 12
+        expected_cols = n_exog + n_lags  # 3 + 2 = 5
+        assert recorder.X_shape == (expected_rows, expected_cols)
+
+
+class TestPredictMulti:
+    """Tests for MultistepModel.predict_multi."""
+
+    def test_shape(self) -> None:
+        """Output has dims (location, trajectory, step)."""
+        model = TrivialOneStepModel()
+        ms = MultistepModel(model, n_target_lags=2)
+
+        n_locs, n_steps, n_samples = 3, 5, 10
+        previous_y = xr.DataArray(
+            np.arange(n_locs * 2, dtype=float).reshape(n_locs, 2),
+            dims=["location", "time"],
+            coords={"location": ["A", "B", "C"]},
+        )
+        result = ms.predict_multi(previous_y, n_steps=n_steps, n_samples=n_samples)
+
+        assert result.dims == ("location", "trajectory", "step")
+        assert result.shape == (n_locs, n_samples, n_steps)
+        np.testing.assert_array_equal(result.coords["location"].values, ["A", "B", "C"])
+
+    def test_roundtrip(self) -> None:
+        """fit_multi + predict_multi end-to-end produces valid output."""
+        model = TrivialOneStepModel()
+        ms = MultistepModel(model, n_target_lags=2)
+
+        rng = np.random.default_rng(42)
+        n_locs, T = 2, 50
+        data = rng.normal(size=(n_locs, T))
+        y = xr.DataArray(data, dims=["location", "time"], coords={"location": ["X", "Y"]})
+
+        ms.fit_multi(y)
+
+        previous_y = y.isel(time=slice(-2, None))
+        result = ms.predict_multi(previous_y, n_steps=5, n_samples=20)
+
+        assert result.shape == (2, 20, 5)
+        # Trajectories should be stochastic
+        assert not np.all(result.isel(location=0).values == result.isel(location=0).values[0])
