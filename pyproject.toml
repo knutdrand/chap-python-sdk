@@ -28,6 +28,7 @@ dependencies = [
     "numpy>=1.22",
     "pandas>=2.3.3",
     "pyarrow>=23.0.0",
+    "xarray>=2024.0",
 ]
 
 [project.urls]
@@ -47,6 +48,9 @@ dev = [
     "pyright>=1.1",
     "ruff>=0.5",
     "coverage>=7.0",
+]
+multistep = [
+    "scikit-learn>=1.5.0",
 ]
 skforecast = [
     "skforecast>=0.14.0",

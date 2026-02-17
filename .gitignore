@@ -11,3 +11,9 @@ wheels/
 
 # Documentation build
 site/
+
+# Local run outputs
+runs/
+
+# R history
+.Rhistory

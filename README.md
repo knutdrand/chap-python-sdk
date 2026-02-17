@@ -7,6 +7,7 @@ A validation and testing framework for chapkit models. This SDK provides tools t
 - Test dataset management for validating chapkit models
 - Testing utilities for validating model train/predict functions
 - Assertion helpers for model I/O validation
+- CLI adapter for creating command-line interfaces from train/predict functions
 - Prediction format conversion utilities
 - pytest integration for automated testing workflows
 
@@ -278,6 +279,45 @@ nested_predictions = predictions_from_wide(wide_dataframe)
 # Detect format automatically
 format_type = detect_prediction_format(dataframe)  # Returns: "nested", "wide", or "long"
 ```
+
+### Creating CLI Interfaces
+
+For simple pandas-based models, use `create_cli_app` to automatically generate train and predict commands:
+
+```python
+from chap_python_sdk import create_cli_app
+import pandas as pd
+from dataclasses import dataclass
+
+@dataclass
+class MyModelConfig:
+    learning_rate: float = 0.01
+    max_depth: int = 10
+
+def train(config: MyModelConfig, data: pd.DataFrame) -> dict:
+    """Train a model."""
+    return {"trained": True}
+
+def predict(model: dict, historic: pd.DataFrame, future: pd.DataFrame) -> pd.DataFrame:
+    """Generate predictions."""
+    n_samples = 100
+    return pd.DataFrame({"samples": [[i] * len(future) for i in range(n_samples)]})
+
+app = create_cli_app(
+    train_func=train,
+    predict_func=predict,
+    config_class=MyModelConfig,
+    name="my-model"
+)
+
+# Creates CLI with:
+# - my-model train-cmd <train_data.csv> <model.pkl> [--learning-rate 0.01]
+# - my-model predict-cmd <model.pkl> <historic.csv> <future.csv> <output.csv>
+```
+
+**Note**: `create_cli_app` works with pandas DataFrames and standard function signatures. For advanced use cases with chapkit DataFrames, `run_info`, or `geo` parameters, create a custom CLI using cyclopts directly (see `my-model/` example).
+
+See the [CLI guide](https://knutdrand.github.io/chap-python-sdk/user-guide/cli/) for complete documentation.
 
 ## Functional Interface
 

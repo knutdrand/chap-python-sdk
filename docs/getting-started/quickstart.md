@@ -107,8 +107,49 @@ future_data = example_data.future_data          # Future periods to predict
 expected_predictions = example_data.predictions  # Reference predictions (optional)
 ```
 
+## Creating a CLI
+
+Generate a command-line interface for your model with `create_cli_app`:
+
+```python
+from chap_python_sdk import create_cli_app
+import pandas as pd
+from dataclasses import dataclass
+
+@dataclass
+class MyModelConfig:
+    learning_rate: float = 0.01
+
+def my_train(config: MyModelConfig, data: pd.DataFrame) -> dict:
+    """Train the model."""
+    return {"trained": True}
+
+def my_predict(model: dict, historic: pd.DataFrame, future: pd.DataFrame) -> pd.DataFrame:
+    """Generate predictions."""
+    n_samples = 100
+    return pd.DataFrame({"samples": [[i] * len(future) for i in range(n_samples)]})
+
+app = create_cli_app(
+    train_func=my_train,
+    predict_func=my_predict,
+    config_class=MyModelConfig,
+    name="my-model"
+)
+
+if __name__ == "__main__":
+    app()
+```
+
+This creates two commands:
+
+- `my-model train-cmd <data.csv> <model.pkl> [--learning-rate 0.01]` - Train and save model
+- `my-model predict-cmd <model.pkl> <historic.csv> <future.csv> <output.csv>` - Generate predictions
+
+See the [CLI guide](../user-guide/cli.md) for complete documentation.
+
 ## Next Steps
 
 - Learn about [Model Testing](../user-guide/model-testing.md) in depth
 - Explore [Test Data Generation](../user-guide/data-generation.md)
+- Read the [Building CLIs](../user-guide/cli.md) guide
 - Check out the [API Reference](../api/index.md)
