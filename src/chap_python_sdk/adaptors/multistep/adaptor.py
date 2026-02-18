@@ -3,14 +3,18 @@
 import asyncio
 from typing import Any
 
+import pandas as pd  # type: ignore[import-untyped]
 from chapkit.config.schemas import BaseConfig
 from chapkit.data import DataFrame
+from sklearn.preprocessing import FunctionTransformer  # type: ignore[import-untyped]
 
 from chap_python_sdk.testing.types import GeoFeatureCollection, RunInfo
 
 from .config import MultistepConfig
-from .data_transformer import chapkit_future_to_xarray, chapkit_to_xarray, xarray_predictions_to_chapkit
+from .data_transformer import xarray_predictions_to_chapkit
+from .model import DataFrameMultistepModel
 from .one_step_model import ResidualBootstrapModel
+from .pipeline import build_feature_transformer, build_target_pipeline
 
 
 class MultistepAdaptor:
@@ -38,21 +42,31 @@ class MultistepAdaptor:
         geo: GeoFeatureCollection | None,
     ) -> dict[str, Any]:
         """Synchronous training logic."""
-        from chap_python_sdk.adaptors.multistep_model import MultistepModel
+        df = data.to_pandas()
+        index_cols = ["time_period", "location"]
+        feature_cols = list(self.config.exogenous_variables) if self.config.exogenous_variables else []
 
-        y, X = chapkit_to_xarray(
-            data,
-            target_variable=self.config.target_variable,
-            exogenous_variables=self.config.exogenous_variables,
+        y: pd.DataFrame = df[index_cols + [self.config.target_variable]]  # pyright: ignore[reportAssignmentType]
+
+        feature_transformer = build_feature_transformer(feature_cols, self.config)
+        scaled = feature_transformer.fit_transform(df[feature_cols])  # pyright: ignore[reportAssignmentType]
+        x_features = pd.concat(
+            [df[index_cols].reset_index(drop=True), pd.DataFrame(scaled).reset_index(drop=True)], axis=1
         )
 
+        target_pipeline = build_target_pipeline(self.config)
         one_step = ResidualBootstrapModel(self.config.model_class, self.config.model_params)
-        model = MultistepModel(one_step, n_target_lags=self.config.n_target_lags)
-        model.fit_multi(y, X)
+        model = DataFrameMultistepModel(
+            one_step,
+            self.config.n_target_lags,
+            target_pipeline=target_pipeline,
+            target_variable=self.config.target_variable,
+        )
+        model.fit(x_features, y)
 
         return {
-            "multistep_model": model,
-            "locations": y.coords["location"].values.tolist(),
+            "model": model,
+            "feature_transformer": feature_transformer,
             "config": self.config.model_dump(),
         }
 
@@ -79,29 +93,22 @@ class MultistepAdaptor:
     ) -> DataFrame:
         """Synchronous prediction logic."""
         restored_config = MultistepConfig(**model["config"])
-        multistep_model = model["multistep_model"]
+        df_model: DataFrameMultistepModel = model["model"]
+        feature_transformer = model.get("feature_transformer") or FunctionTransformer()
 
-        # Get historic target for lag window
-        y_historic, _ = chapkit_to_xarray(
-            historic,
-            target_variable=restored_config.target_variable,
-            exogenous_variables=restored_config.exogenous_variables,
-        )
-        previous_y = y_historic.isel(time=slice(-restored_config.n_target_lags, None))
+        historic_pd = historic.to_pandas()
+        future_pd = future.to_pandas()
 
-        # Get future exogenous features and determine steps
-        _, time_periods, X_future = chapkit_future_to_xarray(
-            future,
-            exogenous_variables=restored_config.exogenous_variables,
-        )
-        n_steps = len(time_periods)
+        index_cols = ["time_period", "location"]
+        y_historic: pd.DataFrame = historic_pd[index_cols + [restored_config.target_variable]]  # pyright: ignore[reportAssignmentType]
 
-        # Generate predictions
-        predictions = multistep_model.predict_multi(
-            previous_y,
-            n_steps=n_steps,
-            n_samples=restored_config.n_samples,
-            X=X_future,
+        feature_cols = list(restored_config.exogenous_variables) if restored_config.exogenous_variables else []
+        scaled = feature_transformer.transform(future_pd[feature_cols])  # pyright: ignore[reportAssignmentType]
+        x_future = pd.concat(
+            [future_pd[index_cols].reset_index(drop=True), pd.DataFrame(scaled).reset_index(drop=True)], axis=1
         )
+
+        n_steps = future_pd.groupby("location").size().iloc[0]
+        predictions = df_model.predict(y_historic, x_future, n_steps, restored_config.n_samples)
 
         return xarray_predictions_to_chapkit(predictions, future)

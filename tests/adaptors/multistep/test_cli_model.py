@@ -13,6 +13,7 @@ from chap_python_sdk.adaptors.multistep.cli_model import (
     train,
 )
 from chap_python_sdk.adaptors.multistep.config import MultistepConfig
+from chap_python_sdk.adaptors.multistep.model import DataFrameMultistepModel
 
 
 def _make_training_data(n_times: int = 24, locations: list[str] | None = None) -> pd.DataFrame:
@@ -83,9 +84,7 @@ def test_create_cli_app() -> None:
 
 
 def test_train_predict_roundtrip() -> None:
-    """Test full train → predict roundtrip via CLI parse_args."""
-    # CLI uses default config (n_target_lags=12, n_samples=200),
-    # so we need enough time points to have samples after lag trimming.
+    """Test full train -> predict roundtrip via CLI parse_args."""
     train_data = _make_training_data(n_times=24)
     historic_data = _make_training_data(n_times=24)
     future_data = _make_future_data(n_steps=3)
@@ -93,7 +92,6 @@ def test_train_predict_roundtrip() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         tmpdir_path = Path(tmpdir)
 
-        # Write CSV files
         train_csv = tmpdir_path / "train.csv"
         train_data.to_csv(train_csv, index=False)
 
@@ -108,25 +106,21 @@ def test_train_predict_roundtrip() -> None:
 
         app = create_multistep_cli_app()
 
-        # Train via CLI
         command, bound, _ = app.parse_args(["train-cmd", str(train_csv), str(model_pkl)])
         command(*bound.args, **bound.kwargs)
         assert model_pkl.exists()
 
-        # Predict via CLI
         command, bound, _ = app.parse_args(
             ["predict-cmd", str(model_pkl), str(historic_csv), str(future_csv), str(predictions_csv)]
         )
         command(*bound.args, **bound.kwargs)
         assert predictions_csv.exists()
 
-        # Verify predictions CSV has sample columns (default n_samples=200)
         predictions = pd.read_csv(predictions_csv)
         sample_cols = [c for c in predictions.columns if c.startswith("sample_")]
         assert len(sample_cols) == 200
         assert "time_period" in predictions.columns
         assert "location" in predictions.columns
-        # 2 locations × 3 steps = 6 rows
         assert len(predictions) == 6
 
 
@@ -137,14 +131,12 @@ def test_train_returns_pickleable_model() -> None:
 
     model = train(config, data)
 
-    # Verify pickling round-trip
     serialized = pickle.dumps(model)
     restored = pickle.loads(serialized)  # noqa: S301
 
-    assert "multistep_model" in restored
-    assert "locations" in restored
+    assert "model" in restored
     assert "config" in restored
-    assert set(restored["locations"]) == {"loc_A", "loc_B"}
+    assert isinstance(restored["model"], DataFrameMultistepModel)
 
 
 def test_predict_with_exogenous() -> None:
@@ -164,9 +156,106 @@ def test_predict_with_exogenous() -> None:
     assert "samples" in result.columns
     assert "time_period" in result.columns
     assert "location" in result.columns
-    assert len(result) == 6  # 2 locations × 3 steps
+    assert len(result) == 6
 
-    # Each row should have 10 samples
     for samples in result["samples"]:
         assert len(samples) == 10
         assert all(isinstance(s, float) for s in samples)
+
+
+def test_train_predict_with_log_transform() -> None:
+    """Test train/predict roundtrip with log transform enabled."""
+    config = MultistepConfig(
+        n_target_lags=4,
+        n_samples=10,
+        log_transform_target=True,
+    )
+    train_data = _make_training_data(n_times=12)
+    historic_data = _make_training_data(n_times=12)
+    future_data = _make_future_data(n_steps=3)
+
+    model = train(config, train_data)
+    result = predict(config, model, historic_data, future_data)
+
+    assert len(result) == 6
+    for samples in result["samples"]:
+        assert len(samples) == 10
+        assert all(s >= -1.0 for s in samples)
+
+
+def test_train_predict_with_standardize() -> None:
+    """Test train/predict roundtrip with standardization enabled."""
+    config = MultistepConfig(
+        n_target_lags=4,
+        n_samples=10,
+        standardize_target=True,
+    )
+    train_data = _make_training_data(n_times=12)
+    historic_data = _make_training_data(n_times=12)
+    future_data = _make_future_data(n_steps=3)
+
+    model = train(config, train_data)
+    result = predict(config, model, historic_data, future_data)
+
+    assert len(result) == 6
+    for samples in result["samples"]:
+        assert len(samples) == 10
+
+
+def test_train_predict_all_transforms_with_exog() -> None:
+    """Test train/predict with all transforms and exogenous variables."""
+    config = MultistepConfig(
+        n_target_lags=4,
+        n_samples=10,
+        log_transform_target=True,
+        standardize_target=True,
+        standardize_covariates=True,
+        exogenous_variables=["rainfall", "mean_temperature"],
+    )
+    train_data = _make_training_data_with_exog(n_times=12)
+    historic_data = _make_training_data_with_exog(n_times=12)
+    future_data = _make_future_data_with_exog(n_steps=3)
+
+    model = train(config, train_data)
+    result = predict(config, model, historic_data, future_data)
+
+    assert len(result) == 6
+    for samples in result["samples"]:
+        assert len(samples) == 10
+        assert all(isinstance(s, float) for s in samples)
+
+
+def test_backward_compat_missing_feature_transformer() -> None:
+    """Test prediction works when model dict has no feature_transformer key (backward compat)."""
+    config = MultistepConfig(n_target_lags=4, n_samples=5)
+    train_data = _make_training_data(n_times=12)
+    historic_data = _make_training_data(n_times=12)
+    future_data = _make_future_data(n_steps=3)
+
+    model = train(config, train_data)
+    # Simulate old model dict without feature_transformer
+    del model["feature_transformer"]
+
+    result = predict(config, model, historic_data, future_data)
+    assert len(result) == 6
+
+
+def test_pickle_roundtrip_with_transforms() -> None:
+    """Test that model dict with fitted transforms survives pickle roundtrip."""
+    config = MultistepConfig(
+        n_target_lags=4,
+        n_samples=5,
+        log_transform_target=True,
+        standardize_target=True,
+    )
+    train_data = _make_training_data(n_times=12)
+
+    model = train(config, train_data)
+    assert "model" in model
+    assert isinstance(model["model"], DataFrameMultistepModel)
+
+    serialized = pickle.dumps(model)
+    restored = pickle.loads(serialized)  # noqa: S301
+
+    assert "model" in restored
+    assert isinstance(restored["model"], DataFrameMultistepModel)

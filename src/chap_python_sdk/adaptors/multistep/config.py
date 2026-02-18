@@ -23,3 +23,6 @@ class MultistepConfig(BaseConfig):
     )
     exogenous_variables: list[str] | None = None
     target_variable: str = "disease_cases"
+    log_transform_target: bool = False
+    standardize_target: bool = False
+    standardize_covariates: bool = False

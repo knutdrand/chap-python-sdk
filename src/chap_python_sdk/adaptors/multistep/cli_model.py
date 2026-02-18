@@ -1,4 +1,4 @@
-"""CLI-compatible model using MultistepModel with plain pandas DataFrames."""
+"""CLI-compatible model using DataFrameMultistepModel with plain pandas DataFrames."""
 
 from __future__ import annotations
 
@@ -7,107 +7,14 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     import cyclopts
 
-import numpy as np
 import pandas as pd  # type: ignore[import-untyped]
 import xarray as xr
+from sklearn.preprocessing import FunctionTransformer  # type: ignore[import-untyped]
 
 from .config import MultistepConfig
+from .model import DataFrameMultistepModel
 from .one_step_model import ResidualBootstrapModel
-
-
-def pandas_to_xarray(
-    df: pd.DataFrame,
-    target_variable: str = "disease_cases",
-    exogenous_variables: list[str] | None = None,
-) -> tuple[xr.DataArray, xr.DataArray | None]:
-    """Convert pandas long-format DataFrame to xarray DataArrays.
-
-    Args:
-        df: DataFrame in long format [time_period, location, target, ...].
-        target_variable: Name of the target variable column.
-        exogenous_variables: List of exogenous variable column names.
-
-    Returns:
-        Tuple of (y, X) where:
-        - y: DataArray with dims (location, time)
-        - X: DataArray with dims (location, time, feature) or None
-    """
-    df = df.copy()
-    df["time_period"] = pd.to_datetime(df["time_period"])
-
-    target_wide = df.pivot(index="time_period", columns="location", values=target_variable)
-    target_wide = target_wide.sort_index().ffill().bfill()
-
-    locations = list(target_wide.columns)
-    times = list(target_wide.index)
-
-    y = xr.DataArray(
-        target_wide.values.T,
-        dims=["location", "time"],
-        coords={"location": locations, "time": times},
-    )
-
-    exog: xr.DataArray | None = None
-    if exogenous_variables:
-        feature_arrays = []
-        for var in exogenous_variables:
-            if var not in df.columns:
-                continue
-            var_wide = df.pivot(index="time_period", columns="location", values=var)
-            var_wide = var_wide.sort_index().ffill().bfill()
-            feature_arrays.append(var_wide.values.T)
-
-        if feature_arrays:
-            exog = xr.DataArray(
-                np.stack(feature_arrays, axis=-1),
-                dims=["location", "time", "feature"],
-                coords={"location": locations, "time": times},
-            )
-
-    return y, exog
-
-
-def pandas_future_to_xarray(
-    df: pd.DataFrame,
-    exogenous_variables: list[str] | None = None,
-) -> tuple[list[str], list[object], xr.DataArray | None]:
-    """Convert future pandas DataFrame to xarray components.
-
-    Args:
-        df: Future DataFrame (no target column).
-        exogenous_variables: List of exogenous variable column names.
-
-    Returns:
-        Tuple of (locations, time_periods, X_future) where:
-        - locations: List of location identifiers.
-        - time_periods: List of unique time periods.
-        - X_future: DataArray with dims (location, step, feature) or None.
-    """
-    df = df.copy()
-    df["time_period"] = pd.to_datetime(df["time_period"])
-
-    locations = sorted(df["location"].unique().tolist())
-    time_periods = sorted(df["time_period"].unique().tolist())
-
-    X_future = None
-    if exogenous_variables:
-        feature_arrays = []
-        for var in exogenous_variables:
-            if var not in df.columns:
-                continue
-            var_wide = df.pivot(index="time_period", columns="location", values=var)
-            var_wide = var_wide.sort_index().ffill().bfill()
-            var_wide = var_wide[locations]
-            feature_arrays.append(var_wide.values.T)
-
-        if feature_arrays:
-            X_future = xr.DataArray(
-                np.stack(feature_arrays, axis=-1),
-                dims=["location", "step", "feature"],
-                coords={"location": locations},
-            )
-
-    return locations, time_periods, X_future
+from .pipeline import build_feature_transformer, build_target_pipeline
 
 
 def xarray_predictions_to_pandas(
@@ -165,23 +72,32 @@ def train(config: MultistepConfig, data: pd.DataFrame) -> dict[str, Any]:
         data: Training data in long format [time_period, location, disease_cases, ...].
 
     Returns:
-        Pickleable dict with trained model, locations, and config.
+        Pickleable dict with trained model and config.
     """
-    from chap_python_sdk.adaptors.multistep_model import MultistepModel
+    index_cols = ["time_period", "location"]
+    feature_cols = list(config.exogenous_variables) if config.exogenous_variables else []
 
-    y, X = pandas_to_xarray(
-        data,
-        target_variable=config.target_variable,
-        exogenous_variables=config.exogenous_variables,
+    y: pd.DataFrame = data[index_cols + [config.target_variable]]  # pyright: ignore[reportAssignmentType]
+
+    feature_transformer = build_feature_transformer(feature_cols, config)
+    scaled = feature_transformer.fit_transform(data[feature_cols])  # pyright: ignore[reportAssignmentType]
+    x_features = pd.concat(
+        [data[index_cols].reset_index(drop=True), pd.DataFrame(scaled).reset_index(drop=True)], axis=1
     )
 
+    target_pipeline = build_target_pipeline(config)
     one_step = ResidualBootstrapModel(config.model_class, config.model_params)
-    model = MultistepModel(one_step, n_target_lags=config.n_target_lags)
-    model.fit_multi(y, X)
+    model = DataFrameMultistepModel(
+        one_step,
+        config.n_target_lags,
+        target_pipeline=target_pipeline,
+        target_variable=config.target_variable,
+    )
+    model.fit(x_features, y)
 
     return {
-        "multistep_model": model,
-        "locations": y.coords["location"].values.tolist(),
+        "model": model,
+        "feature_transformer": feature_transformer,
         "config": config.model_dump(),
     }
 
@@ -204,27 +120,20 @@ def predict(
         DataFrame with [time_period, location, samples] columns.
     """
     restored_config = MultistepConfig(**model["config"])
-    multistep_model = model["multistep_model"]
+    df_model: DataFrameMultistepModel = model["model"]
+    feature_transformer = model.get("feature_transformer") or FunctionTransformer()
 
-    y_historic, _ = pandas_to_xarray(
-        historic,
-        target_variable=restored_config.target_variable,
-        exogenous_variables=restored_config.exogenous_variables,
-    )
-    previous_y = y_historic.isel(time=slice(-restored_config.n_target_lags, None))
+    index_cols = ["time_period", "location"]
+    y_historic: pd.DataFrame = historic[index_cols + [restored_config.target_variable]]  # pyright: ignore[reportAssignmentType]
 
-    _, time_periods, X_future = pandas_future_to_xarray(
-        future,
-        exogenous_variables=restored_config.exogenous_variables,
+    feature_cols = list(restored_config.exogenous_variables) if restored_config.exogenous_variables else []
+    scaled = feature_transformer.transform(future[feature_cols])  # pyright: ignore[reportAssignmentType]
+    x_future = pd.concat(
+        [future[index_cols].reset_index(drop=True), pd.DataFrame(scaled).reset_index(drop=True)], axis=1
     )
-    n_steps = len(time_periods)
 
-    predictions = multistep_model.predict_multi(
-        previous_y,
-        n_steps=n_steps,
-        n_samples=restored_config.n_samples,
-        X=X_future,
-    )
+    n_steps = future.groupby("location").size().iloc[0]
+    predictions = df_model.predict(y_historic, x_future, n_steps, restored_config.n_samples)
 
     return xarray_predictions_to_pandas(predictions, future)
 
