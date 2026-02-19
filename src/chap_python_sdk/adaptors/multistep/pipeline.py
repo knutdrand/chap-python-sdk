@@ -36,6 +36,10 @@ def build_feature_transformer(
     """
     if not config.standardize_covariates or not feature_cols:
         return FunctionTransformer()
-    return ColumnTransformer(
+    ct = ColumnTransformer(
         transformers=[("scaler", StandardScaler(), feature_cols)],
+        remainder="passthrough",
+        verbose_feature_names_out=False,
     )
+    ct.set_output(transform="pandas")
+    return ct

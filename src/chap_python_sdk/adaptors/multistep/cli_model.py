@@ -80,10 +80,7 @@ def train(config: MultistepConfig, data: pd.DataFrame) -> dict[str, Any]:
     y: pd.DataFrame = data[index_cols + [config.target_variable]]  # pyright: ignore[reportAssignmentType]
 
     feature_transformer = build_feature_transformer(feature_cols, config)
-    scaled = feature_transformer.fit_transform(data[feature_cols])  # pyright: ignore[reportAssignmentType]
-    x_features = pd.concat(
-        [data[index_cols].reset_index(drop=True), pd.DataFrame(scaled).reset_index(drop=True)], axis=1
-    )
+    x_features: pd.DataFrame = feature_transformer.fit_transform(data[index_cols + feature_cols])  # pyright: ignore[reportAssignmentType]
 
     target_pipeline = build_target_pipeline(config)
     one_step = ResidualBootstrapModel(config.model_class, config.model_params)
@@ -127,10 +124,7 @@ def predict(
     y_historic: pd.DataFrame = historic[index_cols + [restored_config.target_variable]]  # pyright: ignore[reportAssignmentType]
 
     feature_cols = list(restored_config.exogenous_variables) if restored_config.exogenous_variables else []
-    scaled = feature_transformer.transform(future[feature_cols])  # pyright: ignore[reportAssignmentType]
-    x_future = pd.concat(
-        [future[index_cols].reset_index(drop=True), pd.DataFrame(scaled).reset_index(drop=True)], axis=1
-    )
+    x_future: pd.DataFrame = feature_transformer.transform(future[index_cols + feature_cols])  # pyright: ignore[reportAssignmentType]
 
     n_steps = future.groupby("location").size().iloc[0]
     predictions = df_model.predict(y_historic, x_future, n_steps, restored_config.n_samples)
