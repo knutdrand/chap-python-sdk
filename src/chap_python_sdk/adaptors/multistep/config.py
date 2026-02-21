@@ -21,6 +21,7 @@ class MultistepConfig(BaseConfig):
             "random_state": 42,
         }
     )
+    n_feature_lags: int = 0
     exogenous_variables: list[str] | None = None
     target_variable: str = "disease_cases"
     log_transform_target: bool = False

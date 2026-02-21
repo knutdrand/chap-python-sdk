@@ -8,6 +8,8 @@ from sklearn.preprocessing import FunctionTransformer  # type: ignore[import-unt
 
 from chap_python_sdk.adaptors.multistep.config import MultistepConfig
 from chap_python_sdk.adaptors.multistep.pipeline import (
+    FeatureLagger,
+    build_feature_lagger,
     build_feature_transformer,
     build_target_pipeline,
 )
@@ -165,3 +167,103 @@ class TestBuildFeatureTransformer:
         transformed = scaler.transform(features.to_numpy())
         restored = scaler.inverse_transform(transformed)
         np.testing.assert_allclose(restored, features.to_numpy(), rtol=1e-10)
+
+
+class TestFeatureLagger:
+    """Tests for FeatureLagger."""
+
+    def _make_lagger_df(self) -> pd.DataFrame:
+        """Create DataFrame with 5 time steps per location."""
+        return pd.DataFrame(
+            {
+                "time_period": [f"2020-0{i}-01" for i in range(1, 6)] * 2,
+                "location": ["A"] * 5 + ["B"] * 5,
+                "rainfall": [10.0, 20.0, 30.0, 40.0, 50.0, 15.0, 25.0, 35.0, 45.0, 55.0],
+                "temperature": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
+            }
+        )
+
+    def test_transform_adds_lag_columns(self) -> None:
+        """Transform adds the expected lag columns."""
+        df = self._make_lagger_df()
+        lagger = FeatureLagger(n_lags=2, feature_cols=["rainfall", "temperature"])
+        result = lagger.fit_transform(df)
+
+        expected_cols = ["rainfall_lag1", "rainfall_lag2", "temperature_lag1", "temperature_lag2"]
+        for col in expected_cols:
+            assert col in result.columns
+
+    def test_lag_columns_property(self) -> None:
+        """lag_columns property returns correct names."""
+        lagger = FeatureLagger(n_lags=2, feature_cols=["rainfall", "temperature"])
+        assert lagger.lag_columns == [
+            "rainfall_lag1",
+            "rainfall_lag2",
+            "temperature_lag1",
+            "temperature_lag2",
+        ]
+
+    def test_lag_values_correct(self) -> None:
+        """Lag values are correctly shifted per location group."""
+        df = self._make_lagger_df()
+        lagger = FeatureLagger(n_lags=1, feature_cols=["rainfall"])
+        result = lagger.fit_transform(df)
+
+        loc_a = result[result["location"] == "A"]
+        assert np.isnan(loc_a["rainfall_lag1"].iloc[0])
+        assert loc_a["rainfall_lag1"].iloc[1] == 10.0
+        assert loc_a["rainfall_lag1"].iloc[2] == 20.0
+
+        loc_b = result[result["location"] == "B"]
+        assert np.isnan(loc_b["rainfall_lag1"].iloc[0])
+        assert loc_b["rainfall_lag1"].iloc[1] == 15.0
+
+    def test_nan_rows_preserved(self) -> None:
+        """Transform does NOT drop NaN rows — they are kept for caller to handle."""
+        df = self._make_lagger_df()
+        lagger = FeatureLagger(n_lags=2, feature_cols=["rainfall"])
+        result = lagger.fit_transform(df)
+        assert len(result) == len(df)
+
+    def test_fit_stores_context(self) -> None:
+        """Fit stores the last n_lags rows per location as context_."""
+        df = self._make_lagger_df()
+        lagger = FeatureLagger(n_lags=2, feature_cols=["rainfall"])
+        lagger.fit(df)
+
+        # 2 locations * 2 lags = 4 context rows
+        assert len(lagger.context_) == 4
+        loc_a_ctx = lagger.context_[lagger.context_["location"] == "A"]
+        assert list(loc_a_ctx["rainfall"]) == [40.0, 50.0]
+
+    def test_original_columns_preserved(self) -> None:
+        """Original columns are still present after transform."""
+        df = self._make_lagger_df()
+        lagger = FeatureLagger(n_lags=1, feature_cols=["rainfall"])
+        result = lagger.fit_transform(df)
+        for col in df.columns:
+            assert col in result.columns
+
+
+class TestBuildFeatureLagger:
+    """Tests for build_feature_lagger factory."""
+
+    def test_identity_when_zero_lags(self) -> None:
+        """Returns identity FunctionTransformer when n_feature_lags is 0."""
+        config = MultistepConfig(n_feature_lags=0)
+        result = build_feature_lagger(["rainfall"], config)
+        assert isinstance(result, FunctionTransformer)
+
+    def test_identity_when_no_feature_cols(self) -> None:
+        """Returns identity FunctionTransformer when feature_cols is empty."""
+        config = MultistepConfig(n_feature_lags=2)
+        result = build_feature_lagger([], config)
+        assert isinstance(result, FunctionTransformer)
+
+    def test_returns_feature_lagger(self) -> None:
+        """Returns FeatureLagger when configured with lags and feature cols."""
+        config = MultistepConfig(n_feature_lags=3)
+        result = build_feature_lagger(["rainfall", "temperature"], config)
+        assert isinstance(result, FeatureLagger)
+        assert result.n_lags == 3
+        assert result.feature_cols == ["rainfall", "temperature"]

@@ -14,7 +14,7 @@ from .config import MultistepConfig
 from .data_transformer import xarray_predictions_to_chapkit
 from .model import DataFrameMultistepModel
 from .one_step_model import ResidualBootstrapModel
-from .pipeline import build_feature_transformer, build_target_pipeline
+from .pipeline import FeatureLagger, build_feature_lagger, build_feature_transformer, build_target_pipeline
 
 
 class MultistepAdaptor:
@@ -54,6 +54,15 @@ class MultistepAdaptor:
             [df[index_cols].reset_index(drop=True), pd.DataFrame(scaled).reset_index(drop=True)], axis=1
         )
 
+        feature_lagger = build_feature_lagger(feature_cols, self.config)
+        x_features = feature_lagger.fit_transform(x_features)
+
+        # Mask rows with NaN lag values before fitting
+        if isinstance(feature_lagger, FeatureLagger):
+            valid = x_features[feature_lagger.lag_columns].notna().all(axis=1)
+            x_features = x_features.loc[valid].reset_index(drop=True)  # pyright: ignore[reportAssignmentType]
+            y = y.loc[valid.values].reset_index(drop=True)  # pyright: ignore[reportAssignmentType]
+
         target_pipeline = build_target_pipeline(self.config)
         one_step = ResidualBootstrapModel(self.config.model_class, self.config.model_params)
         model = DataFrameMultistepModel(
@@ -67,6 +76,7 @@ class MultistepAdaptor:
         return {
             "model": model,
             "feature_transformer": feature_transformer,
+            "feature_lagger": feature_lagger,
             "config": self.config.model_dump(),
         }
 
@@ -95,6 +105,7 @@ class MultistepAdaptor:
         restored_config = MultistepConfig(**model["config"])
         df_model: DataFrameMultistepModel = model["model"]
         feature_transformer = model.get("feature_transformer") or FunctionTransformer()
+        feature_lagger = model.get("feature_lagger") or FunctionTransformer()
 
         historic_pd = historic.to_pandas()
         future_pd = future.to_pandas()
@@ -107,6 +118,15 @@ class MultistepAdaptor:
         x_future = pd.concat(
             [future_pd[index_cols].reset_index(drop=True), pd.DataFrame(scaled).reset_index(drop=True)], axis=1
         )
+
+        # Prepend lagger context, transform, then slice off context rows
+        if isinstance(feature_lagger, FeatureLagger):
+            context = feature_lagger.context_
+            x_with_context = pd.concat([context, x_future], ignore_index=True)
+            x_with_context = feature_lagger.transform(x_with_context)
+            x_future = x_with_context.iloc[len(context) :].reset_index(drop=True)
+        else:
+            x_future = feature_lagger.transform(x_future)
 
         n_steps = future_pd.groupby("location").size().iloc[0]
         predictions = df_model.predict(y_historic, x_future, n_steps, restored_config.n_samples)

@@ -14,7 +14,7 @@ from sklearn.preprocessing import FunctionTransformer  # type: ignore[import-unt
 from .config import MultistepConfig
 from .model import DataFrameMultistepModel
 from .one_step_model import ResidualBootstrapModel
-from .pipeline import build_feature_transformer, build_target_pipeline
+from .pipeline import FeatureLagger, build_feature_lagger, build_feature_transformer, build_target_pipeline
 
 
 def xarray_predictions_to_pandas(
@@ -82,6 +82,15 @@ def train(config: MultistepConfig, data: pd.DataFrame) -> dict[str, Any]:
     feature_transformer = build_feature_transformer(feature_cols, config)
     x_features: pd.DataFrame = feature_transformer.fit_transform(data[index_cols + feature_cols])  # pyright: ignore[reportAssignmentType]
 
+    feature_lagger = build_feature_lagger(feature_cols, config)
+    x_features = feature_lagger.fit_transform(x_features)
+
+    # Mask rows with NaN lag values before fitting
+    if isinstance(feature_lagger, FeatureLagger):
+        valid = x_features[feature_lagger.lag_columns].notna().all(axis=1)
+        x_features = x_features.loc[valid].reset_index(drop=True)  # pyright: ignore[reportAssignmentType]
+        y = y.loc[valid.values].reset_index(drop=True)  # pyright: ignore[reportAssignmentType, reportAttributeAccessIssue]
+
     target_pipeline = build_target_pipeline(config)
     one_step = ResidualBootstrapModel(config.model_class, config.model_params)
     model = DataFrameMultistepModel(
@@ -95,6 +104,7 @@ def train(config: MultistepConfig, data: pd.DataFrame) -> dict[str, Any]:
     return {
         "model": model,
         "feature_transformer": feature_transformer,
+        "feature_lagger": feature_lagger,
         "config": config.model_dump(),
     }
 
@@ -119,12 +129,22 @@ def predict(
     restored_config = MultistepConfig(**model["config"])
     df_model: DataFrameMultistepModel = model["model"]
     feature_transformer = model.get("feature_transformer") or FunctionTransformer()
+    feature_lagger = model.get("feature_lagger") or FunctionTransformer()
 
     index_cols = ["time_period", "location"]
     y_historic: pd.DataFrame = historic[index_cols + [restored_config.target_variable]]  # pyright: ignore[reportAssignmentType]
 
     feature_cols = list(restored_config.exogenous_variables) if restored_config.exogenous_variables else []
     x_future: pd.DataFrame = feature_transformer.transform(future[index_cols + feature_cols])  # pyright: ignore[reportAssignmentType]
+
+    # Prepend lagger context, transform, then slice off context rows
+    if isinstance(feature_lagger, FeatureLagger):
+        context = feature_lagger.context_
+        x_with_context = pd.concat([context, x_future], ignore_index=True)
+        x_with_context = feature_lagger.transform(x_with_context)
+        x_future = x_with_context.iloc[len(context) :].reset_index(drop=True)
+    else:
+        x_future = feature_lagger.transform(x_future)
 
     n_steps = future.groupby("location").size().iloc[0]
     predictions = df_model.predict(y_historic, x_future, n_steps, restored_config.n_samples)

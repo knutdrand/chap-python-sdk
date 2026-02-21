@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd  # type: ignore[import-untyped]
+from sklearn.base import BaseEstimator, TransformerMixin  # type: ignore[import-untyped]
 from sklearn.compose import ColumnTransformer  # type: ignore[import-untyped]
 from sklearn.pipeline import Pipeline  # type: ignore[import-untyped]
 from sklearn.preprocessing import FunctionTransformer, StandardScaler  # type: ignore[import-untyped]
@@ -43,3 +45,49 @@ def build_feature_transformer(
     )
     ct.set_output(transform="pandas")
     return ct
+
+
+class FeatureLagger(BaseEstimator, TransformerMixin):  # type: ignore[misc]
+    """Sklearn-compatible transformer that adds lagged feature columns per location.
+
+    For each feature column, adds ``{col}_lag1`` through ``{col}_lagN`` using
+    ``groupby("location").shift(lag)``.  NaN rows produced by lagging are kept;
+    the caller is responsible for masking them before fitting.
+    """
+
+    def __init__(self, n_lags: int, feature_cols: list[str]) -> None:
+        """Initialize with lag count and feature column names."""
+        self.n_lags = n_lags
+        self.feature_cols = feature_cols
+
+    def fit(self, X: pd.DataFrame, y: object = None) -> FeatureLagger:
+        """Store the last ``n_lags`` rows per location as prediction context."""
+        self.context_ = X.groupby("location").tail(self.n_lags).copy()
+        return self
+
+    def transform(self, X: pd.DataFrame, y: object = None) -> pd.DataFrame:
+        """Add lagged columns.  NaN rows from insufficient history are kept."""
+        result = X.copy()
+        for col in self.feature_cols:
+            for lag in range(1, self.n_lags + 1):
+                result[f"{col}_lag{lag}"] = result.groupby("location")[col].shift(lag)
+        return result
+
+    @property
+    def lag_columns(self) -> list[str]:
+        """Return the list of lag column names produced by this transformer."""
+        return [f"{col}_lag{lag}" for col in self.feature_cols for lag in range(1, self.n_lags + 1)]
+
+
+def build_feature_lagger(
+    feature_cols: list[str],
+    config: MultistepConfig,
+) -> FeatureLagger | FunctionTransformer:
+    """Build a FeatureLagger or identity transformer.
+
+    Returns an identity ``FunctionTransformer`` when ``n_feature_lags == 0``
+    or no feature columns are provided.
+    """
+    if config.n_feature_lags <= 0 or not feature_cols:
+        return FunctionTransformer()
+    return FeatureLagger(n_lags=config.n_feature_lags, feature_cols=feature_cols)

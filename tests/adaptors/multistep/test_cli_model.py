@@ -259,3 +259,59 @@ def test_pickle_roundtrip_with_transforms() -> None:
 
     assert "model" in restored
     assert isinstance(restored["model"], DataFrameMultistepModel)
+
+
+def test_train_predict_with_feature_lags() -> None:
+    """Test train/predict with feature lags enabled."""
+    config = MultistepConfig(
+        n_target_lags=4,
+        n_samples=10,
+        n_feature_lags=2,
+        exogenous_variables=["rainfall", "mean_temperature"],
+    )
+    train_data = _make_training_data_with_exog(n_times=12)
+    historic_data = _make_training_data_with_exog(n_times=12)
+    future_data = _make_future_data_with_exog(n_steps=3)
+
+    model = train(config, train_data)
+
+    # Verify lagger is stored and has context
+    from chap_python_sdk.adaptors.multistep.pipeline import FeatureLagger
+
+    assert isinstance(model["feature_lagger"], FeatureLagger)
+    assert len(model["feature_lagger"].context_) > 0
+
+    result = predict(config, model, historic_data, future_data)
+
+    assert "samples" in result.columns
+    assert "time_period" in result.columns
+    assert "location" in result.columns
+    assert len(result) == 6
+
+    for samples in result["samples"]:
+        assert len(samples) == 10
+        assert all(isinstance(s, float) for s in samples)
+
+
+def test_train_predict_with_feature_lags_and_all_transforms() -> None:
+    """Test train/predict with feature lags combined with all other transforms."""
+    config = MultistepConfig(
+        n_target_lags=4,
+        n_samples=10,
+        n_feature_lags=3,
+        log_transform_target=True,
+        standardize_target=True,
+        standardize_covariates=True,
+        exogenous_variables=["rainfall", "mean_temperature"],
+    )
+    train_data = _make_training_data_with_exog(n_times=24)
+    historic_data = _make_training_data_with_exog(n_times=24)
+    future_data = _make_future_data_with_exog(n_steps=3)
+
+    model = train(config, train_data)
+    result = predict(config, model, historic_data, future_data)
+
+    assert len(result) == 6
+    for samples in result["samples"]:
+        assert len(samples) == 10
+        assert all(isinstance(s, float) for s in samples)
