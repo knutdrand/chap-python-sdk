@@ -88,24 +88,20 @@ class DataFrameMultistepModel:
         n_steps: int,
         n_samples: int,
     ) -> pd.DataFrame:
-        """Predict and return a long-format DataFrame.
+        """Predict and return a wide-format DataFrame.
 
-        Returns a DataFrame with columns: location, time_step, sample, value.
+        Returns a DataFrame with columns: location, time_step, sample_0, sample_1, ...
+        One row per (location, time_step), one column per sample trajectory.
         """
         predictions = self.predict_xarray(y_historic, X_future, n_steps, n_samples)
-        records: list[dict[str, object]] = []
         locations = predictions.coords["location"].values
+        records: list[dict[str, object]] = []
         for loc_idx, loc in enumerate(locations):
-            for traj_idx in range(predictions.sizes["trajectory"]):
-                for step_idx in range(predictions.sizes["step"]):
-                    records.append(
-                        {
-                            "location": loc,
-                            "time_step": step_idx,
-                            "sample": traj_idx,
-                            "value": float(predictions.values[loc_idx, traj_idx, step_idx]),
-                        }
-                    )
+            for step_idx in range(predictions.sizes["step"]):
+                row: dict[str, object] = {"location": loc, "time_step": step_idx}
+                for traj_idx in range(predictions.sizes["trajectory"]):
+                    row[f"sample_{traj_idx}"] = float(predictions.values[loc_idx, traj_idx, step_idx])
+                records.append(row)
         return pd.DataFrame(records)
 
     def _target_to_xarray(self, y_df: pd.DataFrame) -> xr.DataArray:

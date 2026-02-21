@@ -176,7 +176,7 @@ class TestDataFrameMultistepModel:
         assert preds.sizes["location"] == 1
 
     def test_predict(self) -> None:
-        """Predict returns a long-format DataFrame with correct shape and columns."""
+        """Predict returns a wide-format DataFrame with one column per sample."""
         n_locations = 2
         n_steps = 3
         n_samples = 5
@@ -187,5 +187,8 @@ class TestDataFrameMultistepModel:
         df = model.predict(y.copy(), _make_future(), n_steps=n_steps, n_samples=n_samples)
 
         assert isinstance(df, pd.DataFrame)
-        assert list(df.columns) == ["location", "time_step", "sample", "value"]
-        assert len(df) == n_locations * n_samples * n_steps
+        assert len(df) == n_locations * n_steps
+        assert "location" in df.columns
+        assert "time_step" in df.columns
+        sample_cols = [c for c in df.columns if c.startswith("sample_")]
+        assert len(sample_cols) == n_samples
