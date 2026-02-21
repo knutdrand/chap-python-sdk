@@ -45,7 +45,7 @@ class DataFrameMultistepModel:
         X_xr = self._features_to_xarray(X)
         self._model.fit_multi(y_xr, X_xr)
 
-    def predict(
+    def predict_xarray(
         self,
         y_historic: pd.DataFrame,
         X_future: pd.DataFrame | None,
@@ -81,7 +81,7 @@ class DataFrameMultistepModel:
         values = flat.reshape(original_shape)
         return xr.DataArray(values, dims=predictions.dims, coords=predictions.coords)
 
-    def predict_df(
+    def predict(
         self,
         y_historic: pd.DataFrame,
         X_future: pd.DataFrame | None,
@@ -92,7 +92,7 @@ class DataFrameMultistepModel:
 
         Returns a DataFrame with columns: location, time_step, sample, value.
         """
-        predictions = self.predict(y_historic, X_future, n_steps, n_samples)
+        predictions = self.predict_xarray(y_historic, X_future, n_steps, n_samples)
         records: list[dict[str, object]] = []
         locations = predictions.coords["location"].values
         for loc_idx, loc in enumerate(locations):
