@@ -1,11 +1,12 @@
 """Tests for data transformation between chapkit and skforecast formats."""
 
 import pandas as pd  # type: ignore[import-untyped]
-import polars as pl
 import pytest
-from chapkit.data import DataFrame as ChapkitDataFrame
 
-skforecast = pytest.importorskip("skforecast", reason="skforecast not installed")
+pl = pytest.importorskip("polars", reason="polars not installed")
+pytest.importorskip("skforecast", reason="skforecast not installed")
+
+from chapkit.data import DataFrame as ChapkitDataFrame  # noqa: E402
 
 from chap_python_sdk.adaptors.skforecast.data_transformer import chapkit_to_wide, wide_to_chapkit  # noqa: E402
 
@@ -23,7 +24,7 @@ class TestChapkitToWide:
             }
         )
 
-        target_wide, exog_wide = chapkit_to_wide(data, target_variable="disease_cases")  # type: ignore[arg-type]
+        target_wide, exog_wide = chapkit_to_wide(data, target_variable="disease_cases")
 
         assert isinstance(target_wide, pd.DataFrame)
         assert target_wide.shape == (3, 2)
@@ -45,7 +46,7 @@ class TestChapkitToWide:
         )
 
         target_wide, exog_wide = chapkit_to_wide(
-            data,  # type: ignore[arg-type]
+            data,
             target_variable="disease_cases",
             exogenous_variables=["rainfall", "temperature"],
         )
@@ -68,7 +69,7 @@ class TestChapkitToWide:
             }
         )
 
-        target_wide, _ = chapkit_to_wide(data, target_variable="disease_cases")  # type: ignore[arg-type]
+        target_wide, _ = chapkit_to_wide(data, target_variable="disease_cases")
 
         assert isinstance(target_wide.index, pd.DatetimeIndex)
         assert target_wide.index[0] == pd.Timestamp("2023-01-01")
@@ -83,7 +84,7 @@ class TestChapkitToWide:
             }
         )
 
-        target_wide, _ = chapkit_to_wide(data, target_variable="disease_cases")  # type: ignore[arg-type]
+        target_wide, _ = chapkit_to_wide(data, target_variable="disease_cases")
 
         assert list(target_wide.index) == [pd.Timestamp("2023-01"), pd.Timestamp("2023-02"), pd.Timestamp("2023-03")]
 
@@ -97,7 +98,7 @@ class TestChapkitToWide:
             }
         )
 
-        target_wide, _ = chapkit_to_wide(data, target_variable="disease_cases")  # type: ignore[arg-type]
+        target_wide, _ = chapkit_to_wide(data, target_variable="disease_cases")
 
         assert target_wide.shape == (2, 1)
 
@@ -119,7 +120,7 @@ class TestWideToChapkit:
             }
         )
 
-        result = wide_to_chapkit(predictions_wide, future)  # type: ignore[arg-type]
+        result = wide_to_chapkit(predictions_wide, future)
 
         assert isinstance(result, ChapkitDataFrame)
         assert len(result) == 4
@@ -140,7 +141,7 @@ class TestWideToChapkit:
             }
         )
 
-        result = wide_to_chapkit(predictions_wide, future)  # type: ignore[arg-type]
+        result = wide_to_chapkit(predictions_wide, future)
 
         samples = result["samples"][0]  # type: ignore[index]
         assert isinstance(samples, list)
@@ -161,7 +162,7 @@ class TestWideToChapkit:
             }
         )
 
-        result = wide_to_chapkit(predictions_wide, future)  # type: ignore[arg-type]
+        result = wide_to_chapkit(predictions_wide, future)
 
         # Check samples by location using chapkit DataFrame indexing
         locations = result["location"]
@@ -185,7 +186,7 @@ class TestWideToChapkit:
             }
         )
 
-        result = wide_to_chapkit(predictions_wide, future)  # type: ignore[arg-type]
+        result = wide_to_chapkit(predictions_wide, future)
 
         result_sorted = result.sort("time_period")
         assert result_sorted["time_period"][0] == "2023-04-01T00:00:00"  # type: ignore[index]
@@ -207,4 +208,4 @@ class TestWideToChapkit:
         )
 
         with pytest.raises(ValueError, match="Mismatch in prediction length"):
-            wide_to_chapkit(predictions_wide, future)  # type: ignore[arg-type]
+            wide_to_chapkit(predictions_wide, future)
