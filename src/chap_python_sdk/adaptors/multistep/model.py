@@ -81,6 +81,33 @@ class DataFrameMultistepModel:
         values = flat.reshape(original_shape)
         return xr.DataArray(values, dims=predictions.dims, coords=predictions.coords)
 
+    def predict_df(
+        self,
+        y_historic: pd.DataFrame,
+        X_future: pd.DataFrame | None,
+        n_steps: int,
+        n_samples: int,
+    ) -> pd.DataFrame:
+        """Predict and return a long-format DataFrame.
+
+        Returns a DataFrame with columns: location, time_step, sample, value.
+        """
+        predictions = self.predict(y_historic, X_future, n_steps, n_samples)
+        records: list[dict[str, object]] = []
+        locations = predictions.coords["location"].values
+        for loc_idx, loc in enumerate(locations):
+            for traj_idx in range(predictions.sizes["trajectory"]):
+                for step_idx in range(predictions.sizes["step"]):
+                    records.append(
+                        {
+                            "location": loc,
+                            "time_step": step_idx,
+                            "sample": traj_idx,
+                            "value": float(predictions.values[loc_idx, traj_idx, step_idx]),
+                        }
+                    )
+        return pd.DataFrame(records)
+
     def _target_to_xarray(self, y_df: pd.DataFrame) -> xr.DataArray:
         """Pivot target DataFrame to xr.DataArray (location, time)."""
         df = y_df.copy()

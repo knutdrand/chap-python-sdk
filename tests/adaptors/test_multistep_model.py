@@ -8,6 +8,7 @@ import numpy as np
 import xarray as xr
 
 from chap_python_sdk.adaptors.multistep_model import (
+    DeterministicMultistepModel,
     MultistepDistribution,
     MultistepModel,
     _build_lag_matrix,  # pyright: ignore[reportPrivateUsage]
@@ -368,3 +369,86 @@ class TestPredictMulti:
         assert result.shape == (2, 20, 5)
         # Trajectories should be stochastic
         assert not np.all(result.isel(location=0).values == result.isel(location=0).values[0])
+
+
+class TrivialDeterministicModel:
+    """Returns the mean of last lag as prediction."""
+
+    def fit(self, X: np.ndarray, y: np.ndarray) -> None:
+        """No-op fit."""
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        """Return last lag value as prediction."""
+        return X[:, -1]
+
+
+class TestDeterministicMultistepModel:
+    """Tests for DeterministicMultistepModel."""
+
+    def test_fit_without_exogenous(self) -> None:
+        """Fit without exogenous features should succeed."""
+        model = TrivialDeterministicModel()
+        ms = DeterministicMultistepModel(model, n_target_lags=2)
+        y = np.arange(10, dtype=float)
+        ms.fit(y)
+
+    def test_predict_shape(self) -> None:
+        """Predict returns correct shape."""
+        model = TrivialDeterministicModel()
+        ms = DeterministicMultistepModel(model, n_target_lags=2)
+        y = np.arange(10, dtype=float)
+        ms.fit(y)
+        preds = ms.predict(y[-2:], n_steps=5)
+        assert preds.shape == (5,)
+
+    def test_predict_deterministic(self) -> None:
+        """Same input produces same output (no stochasticity)."""
+        model = TrivialDeterministicModel()
+        ms = DeterministicMultistepModel(model, n_target_lags=2)
+        y = np.arange(10, dtype=float)
+        ms.fit(y)
+        preds1 = ms.predict(y[-2:], n_steps=5)
+        preds2 = ms.predict(y[-2:], n_steps=5)
+        np.testing.assert_array_equal(preds1, preds2)
+
+    def test_predict_multi_shape(self) -> None:
+        """Multi-location predict returns correct shape and dims."""
+        model = TrivialDeterministicModel()
+        ms = DeterministicMultistepModel(model, n_target_lags=2)
+        n_locs, T = 3, 10
+        y = xr.DataArray(
+            np.arange(n_locs * T, dtype=float).reshape(n_locs, T),
+            dims=["location", "time"],
+            coords={"location": ["A", "B", "C"]},
+        )
+        ms.fit_multi(y)
+        previous_y = y.isel(time=slice(-2, None))
+        result = ms.predict_multi(previous_y, n_steps=5)
+        assert result.dims == ("location", "step")
+        assert result.shape == (3, 5)
+
+    def test_predict_multi_deterministic(self) -> None:
+        """Multi-location predictions are deterministic."""
+        model = TrivialDeterministicModel()
+        ms = DeterministicMultistepModel(model, n_target_lags=2)
+        y = xr.DataArray(
+            np.arange(20, dtype=float).reshape(2, 10),
+            dims=["location", "time"],
+            coords={"location": ["X", "Y"]},
+        )
+        ms.fit_multi(y)
+        prev = y.isel(time=slice(-2, None))
+        r1 = ms.predict_multi(prev, n_steps=3)
+        r2 = ms.predict_multi(prev, n_steps=3)
+        np.testing.assert_array_equal(r1.values, r2.values)
+
+    def test_with_exogenous(self) -> None:
+        """Fit and predict with exogenous features."""
+        model = TrivialDeterministicModel()
+        ms = DeterministicMultistepModel(model, n_target_lags=2)
+        y = np.arange(10, dtype=float)
+        X = np.ones((10, 3))
+        ms.fit(y, X)
+        X_future = np.ones((5, 3))
+        preds = ms.predict(y[-2:], n_steps=5, X=X_future)
+        assert preds.shape == (5,)

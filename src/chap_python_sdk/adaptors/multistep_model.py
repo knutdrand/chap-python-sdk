@@ -184,6 +184,121 @@ class MultistepModel:
         )
 
 
+class DeterministicOneStepModel(Protocol):
+    """Protocol for a one-step deterministic regression model (e.g. sklearn regressor)."""
+
+    def fit(self, X: np.ndarray, y: np.ndarray) -> None:
+        """Fit the model on features X and targets y."""
+        ...
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        """Return point predictions for features X."""
+        ...
+
+
+class DeterministicMultistepModel:
+    """Recursive multi-step forecaster using point predictions only (no sampling).
+
+    Each step feeds the point prediction forward as input to the next step.
+    Supports multi-location pooling via fit_multi/predict_multi.
+    """
+
+    def __init__(self, one_step_model: DeterministicOneStepModel, n_target_lags: int):
+        """Initialize with a one-step deterministic model and lag count."""
+        self.one_step_model = one_step_model
+        self.n_target_lags = n_target_lags
+
+    def fit(self, y: np.ndarray, X: np.ndarray | None = None) -> None:
+        """Build lag matrix from y, append to X, and train the one-step model."""
+        lags = _build_lag_matrix(y, self.n_target_lags)
+        y_target = y[self.n_target_lags :]
+
+        if X is not None:
+            exog = xr.DataArray(X[self.n_target_lags :], dims=["time", "feature"])
+            features = xr.concat([exog, lags.rename(lag="feature")], dim="feature")
+        else:
+            features = lags.rename(lag="feature")
+
+        self.one_step_model.fit(features.values, y_target)
+
+    def fit_multi(self, y: xr.DataArray, X: xr.DataArray | None = None) -> None:
+        """Fit on multi-location data, pooling all locations."""
+        lags = _build_lag_matrix_xr(y, self.n_target_lags)
+        y_target = y.isel(time=slice(self.n_target_lags, None))
+
+        lags_feat = lags.rename(lag="feature")
+        if X is not None:
+            X_trimmed = X.isel(time=slice(self.n_target_lags, None))
+            features = xr.concat(
+                [X_trimmed.transpose("feature", "location", "time"), lags_feat],
+                dim="feature",
+            )
+        else:
+            features = lags_feat
+
+        features_stacked = features.stack(sample=("location", "time"))
+        y_stacked = y_target.stack(sample=("location", "time"))
+
+        self.one_step_model.fit(
+            features_stacked.transpose("sample", "feature").values,
+            y_stacked.values,
+        )
+
+    def predict(
+        self,
+        previous_y: np.ndarray,
+        n_steps: int,
+        X: np.ndarray | None = None,
+    ) -> np.ndarray:
+        """Generate deterministic multi-step forecast.
+
+        Args:
+            previous_y: Recent observations, shape (>= n_target_lags,).
+            n_steps: Number of forecast steps.
+            X: Known future exogenous features, shape (n_steps, n_features) or None.
+
+        Returns:
+            Array of shape (n_steps,) with point predictions.
+        """
+        lag_window = previous_y[-self.n_target_lags :].copy().astype(float)
+        results = []
+        for step in range(n_steps):
+            if X is not None:
+                features = np.concatenate([X[step], lag_window]).reshape(1, -1)
+            else:
+                features = lag_window.reshape(1, -1)
+            pred = float(self.one_step_model.predict(features)[0])
+            results.append(pred)
+            lag_window = np.roll(lag_window, -1)
+            lag_window[-1] = pred
+        return np.array(results)
+
+    def predict_multi(
+        self,
+        previous_y: xr.DataArray,
+        n_steps: int,
+        X: xr.DataArray | None = None,
+    ) -> xr.DataArray:
+        """Generate deterministic multi-step forecasts for multiple locations.
+
+        Returns:
+            DataArray with dims (location, step).
+        """
+        locations = previous_y.coords["location"].values
+        results = []
+        for loc in locations:
+            prev = previous_y.sel(location=loc).values
+            X_loc = X.sel(location=loc).values if X is not None else None
+            preds = self.predict(prev, n_steps, X_loc)
+            results.append(preds)
+
+        return xr.DataArray(
+            np.stack(results),
+            dims=["location", "step"],
+            coords={"location": locations},
+        )
+
+
 class MultistepDistribution:
     """Lazy distribution that runs recursive trajectory sampling on .sample()."""
 

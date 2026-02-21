@@ -174,3 +174,18 @@ class TestDataFrameMultistepModel:
 
         preds = model.predict(y.copy(), None, n_steps=3, n_samples=5)
         assert preds.sizes["location"] == 1
+
+    def test_predict_df(self) -> None:
+        """predict_df returns a long-format DataFrame with correct shape and columns."""
+        n_locations = 2
+        n_steps = 3
+        n_samples = 5
+        X, y = _make_data(locations=["loc_A", "loc_B"])
+        model = DataFrameMultistepModel(_make_one_step(), n_target_lags=4)
+        model.fit(X, y)
+
+        df = model.predict_df(y.copy(), _make_future(), n_steps=n_steps, n_samples=n_samples)
+
+        assert isinstance(df, pd.DataFrame)
+        assert list(df.columns) == ["location", "time_step", "sample", "value"]
+        assert len(df) == n_locations * n_samples * n_steps
