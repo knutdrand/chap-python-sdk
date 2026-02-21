@@ -1,5 +1,8 @@
 """Validation and testing framework for chapkit models."""
 
+from chap_python_sdk.adaptors.multistep import MultistepConfig, create_multistep_cli_app, create_multistep_functions
+from chap_python_sdk.adaptors.skforecast import SkforecastConfig, create_skforecast_functions
+from chap_python_sdk.cli_adapter import create_cli_app
 from chap_python_sdk.testing import (
     ExampleData,
     PredictFunction,
@@ -61,4 +64,12 @@ __all__ = [
     "TrainFunction",
     "PredictFunction",
     "RunInfo",
+    # Adaptors
+    "create_multistep_cli_app",
+    "create_multistep_functions",
+    "MultistepConfig",
+    "create_skforecast_functions",
+    "SkforecastConfig",
+    # CLI
+    "create_cli_app",
 ]

@@ -73,6 +73,7 @@ nav:
       - Test Data Generation: user-guide/data-generation.md
       - Prediction Formats: user-guide/prediction-formats.md
       - Assertions: user-guide/assertions.md
+      - Building CLIs: user-guide/cli.md
   - API Reference:
       - Overview: api/index.md
       - Types: api/types.md
@@ -81,6 +82,7 @@ nav:
       - Predictions: api/predictions.md
       - Generators: api/generators.md
       - Example Data: api/example-data.md
+      - CLI Adapter: api/cli.md
 
 extra:
   social:

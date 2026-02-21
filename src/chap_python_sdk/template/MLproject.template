@@ -1,0 +1,16 @@
+name: {{project_name}}
+
+entry_points:
+  train:
+    parameters:
+      train_data: string
+      model: string
+    command: "uv run python -m {{project_name_underscore}}.cli train-cmd {train_data} {model}"
+
+  predict:
+    parameters:
+      model: string
+      historic_data: string
+      future_data: string
+      out_file: string
+    command: "uv run python -m {{project_name_underscore}}.cli predict-cmd {model} {historic_data} {future_data} {out_file}"

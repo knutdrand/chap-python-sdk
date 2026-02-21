@@ -1,0 +1,22 @@
+"""CLI for {{project_name}} model."""
+
+from chap_python_sdk import create_cli_app
+
+from {{project_name_underscore}}.model import {{project_name_class}}Config, predict, train
+
+# Create CLI app with train-cmd and predict-cmd subcommands
+app = create_cli_app(
+    train_func=train,
+    predict_func=predict,
+    config_class={{project_name_class}}Config,
+    name="{{project_name}}",
+)
+
+
+def main() -> None:
+    """Main entry point."""
+    app()
+
+
+if __name__ == "__main__":
+    main()

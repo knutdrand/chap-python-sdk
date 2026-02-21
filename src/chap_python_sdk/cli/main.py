@@ -70,7 +70,9 @@ def init(
     templates = [
         ("pyproject.toml.template", target_dir / "pyproject.toml"),
         ("README.md.template", target_dir / "README.md"),
+        ("MLproject.template", target_dir / "MLproject"),
         ("model.py.template", src_dir / "model.py"),
+        ("cli.py.template", src_dir / "cli.py"),
         ("__init__.py.template", src_dir / "__init__.py"),
         ("test_model.py.template", tests_dir / "test_model.py"),
     ]

@@ -7,6 +7,7 @@ A validation and testing framework for chapkit models. This SDK provides tools t
 - **Test dataset management** for validating chapkit models
 - **Testing utilities** for validating model train/predict functions
 - **Assertion helpers** for model I/O validation
+- **CLI Adapter** for creating command-line interfaces from train/predict functions
 - **Prediction format conversion** utilities
 - **Test data generation** based on model requirements
 - **pytest integration** for automated testing workflows
