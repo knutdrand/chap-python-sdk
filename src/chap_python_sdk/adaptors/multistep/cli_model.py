@@ -147,7 +147,7 @@ def predict(
         x_future = feature_lagger.transform(x_future)
 
     n_steps = future.groupby("location").size().iloc[0]
-    predictions = df_model.predict(y_historic, x_future, n_steps, restored_config.n_samples)
+    predictions = df_model.predict_xarray(y_historic, x_future, n_steps, restored_config.n_samples)
 
     return xarray_predictions_to_pandas(predictions, future)
 

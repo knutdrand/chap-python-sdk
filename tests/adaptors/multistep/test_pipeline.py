@@ -9,6 +9,9 @@ from sklearn.preprocessing import FunctionTransformer  # type: ignore[import-unt
 from chap_python_sdk.adaptors.multistep.config import MultistepConfig
 from chap_python_sdk.adaptors.multistep.pipeline import (
     FeatureLagger,
+    InteractionTransformer,
+    LocationEncoder,
+    SeasonEncoder,
     build_feature_lagger,
     build_feature_transformer,
     build_target_pipeline,
@@ -267,3 +270,167 @@ class TestBuildFeatureLagger:
         assert isinstance(result, FeatureLagger)
         assert result.n_lags == 3
         assert result.feature_cols == ["rainfall", "temperature"]
+
+
+class TestLocationEncoder:
+    """Tests for LocationEncoder."""
+
+    def test_adds_one_hot_columns(self) -> None:
+        """Transform adds one-hot columns for each location."""
+        df = _make_df()
+        encoder = LocationEncoder()
+        result = encoder.fit_transform(df)
+        assert "location_A" in result.columns
+        assert "location_B" in result.columns
+        assert "location" not in result.columns
+
+    def test_values_correct(self) -> None:
+        """One-hot values are 1.0 for matching location, 0.0 otherwise."""
+        df = _make_df()
+        encoder = LocationEncoder()
+        result = encoder.fit_transform(df)
+        loc_a_rows = df["location"] == "A"
+        assert all(result.loc[loc_a_rows, "location_A"] == 1.0)
+        assert all(result.loc[loc_a_rows, "location_B"] == 0.0)
+
+    def test_preserves_other_columns(self) -> None:
+        """Non-location columns are preserved."""
+        df = _make_df()
+        encoder = LocationEncoder()
+        result = encoder.fit_transform(df)
+        assert "rainfall" in result.columns
+        assert "temperature" in result.columns
+        assert "time_period" in result.columns
+
+    def test_row_count_preserved(self) -> None:
+        """Number of rows is unchanged."""
+        df = _make_df()
+        encoder = LocationEncoder()
+        result = encoder.fit_transform(df)
+        assert len(result) == len(df)
+
+
+class TestSeasonEncoder:
+    """Tests for SeasonEncoder."""
+
+    def test_adds_month_columns(self) -> None:
+        """Default mode adds month columns."""
+        df = _make_df()
+        encoder = SeasonEncoder()
+        result = encoder.fit_transform(df)
+        assert "month_1" in result.columns
+        assert "month_2" in result.columns
+        assert "month_3" in result.columns
+
+    def test_month_values_correct(self) -> None:
+        """Month one-hot values are correct."""
+        df = _make_df()
+        encoder = SeasonEncoder()
+        result = encoder.fit_transform(df)
+        # First row is 2020-01-01, should be month 1
+        assert result["month_1"].iloc[0] == 1.0
+        assert result["month_2"].iloc[0] == 0.0
+
+    def test_custom_season_mapping(self) -> None:
+        """Custom season mapping creates season columns."""
+        df = _make_df()
+        mapping = {
+            1: "dry",
+            2: "dry",
+            3: "wet",
+            4: "wet",
+            5: "wet",
+            6: "wet",
+            7: "wet",
+            8: "wet",
+            9: "wet",
+            10: "dry",
+            11: "dry",
+            12: "dry",
+        }
+        encoder = SeasonEncoder(season_mapping=mapping)
+        result = encoder.fit_transform(df)
+        assert "season_dry" in result.columns
+        assert "season_wet" in result.columns
+
+    def test_preserves_time_period(self) -> None:
+        """time_period column is preserved (not dropped)."""
+        df = _make_df()
+        encoder = SeasonEncoder()
+        result = encoder.fit_transform(df)
+        assert "time_period" in result.columns
+
+    def test_row_count_preserved(self) -> None:
+        """Number of rows is unchanged."""
+        df = _make_df()
+        encoder = SeasonEncoder()
+        result = encoder.fit_transform(df)
+        assert len(result) == len(df)
+
+
+class TestInteractionTransformer:
+    """Tests for InteractionTransformer."""
+
+    def _make_encoded_df(self) -> pd.DataFrame:
+        """Create DataFrame with pre-encoded location and season columns."""
+        return pd.DataFrame(
+            {
+                "location_A": [1.0, 1.0, 0.0, 0.0],
+                "location_B": [0.0, 0.0, 1.0, 1.0],
+                "season_dry": [1.0, 0.0, 1.0, 0.0],
+                "season_wet": [0.0, 1.0, 0.0, 1.0],
+                "rainfall": [100.0, 200.0, 150.0, 250.0],
+            }
+        )
+
+    def test_creates_interaction_columns(self) -> None:
+        """Transform creates pairwise interaction columns."""
+        df = self._make_encoded_df()
+        transformer = InteractionTransformer()
+        result = transformer.fit_transform(df)
+        assert "location_A_x_season_dry" in result.columns
+        assert "location_A_x_season_wet" in result.columns
+        assert "location_B_x_season_dry" in result.columns
+        assert "location_B_x_season_wet" in result.columns
+
+    def test_interaction_values_correct(self) -> None:
+        """Interaction values are products of the component columns."""
+        df = self._make_encoded_df()
+        transformer = InteractionTransformer()
+        result = transformer.fit_transform(df)
+        # Row 0: location_A=1, season_dry=1 -> interaction=1
+        assert result["location_A_x_season_dry"].iloc[0] == 1.0
+        # Row 0: location_A=1, season_wet=0 -> interaction=0
+        assert result["location_A_x_season_wet"].iloc[0] == 0.0
+        # Row 2: location_B=1, season_dry=1 -> interaction=1
+        assert result["location_B_x_season_dry"].iloc[2] == 1.0
+
+    def test_preserves_original_columns(self) -> None:
+        """Original columns are preserved."""
+        df = self._make_encoded_df()
+        transformer = InteractionTransformer()
+        result = transformer.fit_transform(df)
+        for col in df.columns:
+            assert col in result.columns
+
+    def test_row_count_preserved(self) -> None:
+        """Number of rows is unchanged."""
+        df = self._make_encoded_df()
+        transformer = InteractionTransformer()
+        result = transformer.fit_transform(df)
+        assert len(result) == len(df)
+
+    def test_custom_prefixes(self) -> None:
+        """Works with custom prefixes."""
+        df = pd.DataFrame(
+            {
+                "cat_a": [1.0, 0.0],
+                "cat_b": [0.0, 1.0],
+                "feat_x": [1.0, 0.0],
+                "feat_y": [0.0, 1.0],
+            }
+        )
+        transformer = InteractionTransformer(left_prefix="cat_", right_prefix="feat_")
+        result = transformer.fit_transform(df)
+        assert "cat_a_x_feat_x" in result.columns
+        assert "cat_b_x_feat_y" in result.columns

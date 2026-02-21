@@ -83,7 +83,7 @@ class TestDataFrameMultistepModel:
 
         y_historic = y.copy()
         X_future = _make_future()
-        preds = model.predict(y_historic, X_future, n_steps=3, n_samples=5)
+        preds = model.predict_xarray(y_historic, X_future, n_steps=3, n_samples=5)
 
         assert preds.dims == ("location", "trajectory", "step")
         assert preds.sizes["location"] == 2
@@ -98,7 +98,7 @@ class TestDataFrameMultistepModel:
 
         y_historic = y.copy()
         X_future = _make_future(include_exog=True)
-        preds = model.predict(y_historic, X_future, n_steps=3, n_samples=5)
+        preds = model.predict_xarray(y_historic, X_future, n_steps=3, n_samples=5)
 
         assert preds.dims == ("location", "trajectory", "step")
         assert preds.sizes["location"] == 2
@@ -112,7 +112,7 @@ class TestDataFrameMultistepModel:
         model.fit(X, y)
 
         y_historic = y.copy()
-        preds = model.predict(y_historic, None, n_steps=3, n_samples=5)
+        preds = model.predict_xarray(y_historic, None, n_steps=3, n_samples=5)
 
         assert preds.sizes["step"] == 3
         assert preds.sizes["trajectory"] == 5
@@ -130,7 +130,7 @@ class TestDataFrameMultistepModel:
         model.fit(X, y)
 
         y_historic = y.copy()
-        preds = model.predict(y_historic, None, n_steps=3, n_samples=5)
+        preds = model.predict_xarray(y_historic, None, n_steps=3, n_samples=5)
 
         # Predictions should be in original scale (positive values for count data)
         assert preds.sizes["step"] == 3
@@ -143,7 +143,7 @@ class TestDataFrameMultistepModel:
         model = DataFrameMultistepModel(_make_one_step(), n_target_lags=4, target_pipeline=None)
         model.fit(X, y)
 
-        preds = model.predict(y.copy(), None, n_steps=3, n_samples=5)
+        preds = model.predict_xarray(y.copy(), None, n_steps=3, n_samples=5)
         assert preds.sizes["step"] == 3
 
     def test_pickle_roundtrip(self) -> None:
@@ -160,8 +160,8 @@ class TestDataFrameMultistepModel:
         serialized = pickle.dumps(model)
         restored: DataFrameMultistepModel = pickle.loads(serialized)  # noqa: S301
 
-        preds_orig = model.predict(y.copy(), None, n_steps=3, n_samples=5)
-        preds_restored = restored.predict(y.copy(), None, n_steps=3, n_samples=5)
+        preds_orig = model.predict_xarray(y.copy(), None, n_steps=3, n_samples=5)
+        preds_restored = restored.predict_xarray(y.copy(), None, n_steps=3, n_samples=5)
 
         # Same shape (values differ due to stochastic sampling)
         assert preds_orig.shape == preds_restored.shape
@@ -172,5 +172,23 @@ class TestDataFrameMultistepModel:
         model = DataFrameMultistepModel(_make_one_step(), n_target_lags=4)
         model.fit(X, y)
 
-        preds = model.predict(y.copy(), None, n_steps=3, n_samples=5)
+        preds = model.predict_xarray(y.copy(), None, n_steps=3, n_samples=5)
         assert preds.sizes["location"] == 1
+
+    def test_predict(self) -> None:
+        """Predict returns a wide-format DataFrame with one column per sample."""
+        n_locations = 2
+        n_steps = 3
+        n_samples = 5
+        X, y = _make_data(locations=["loc_A", "loc_B"])
+        model = DataFrameMultistepModel(_make_one_step(), n_target_lags=4)
+        model.fit(X, y)
+
+        df = model.predict(y.copy(), _make_future(), n_steps=n_steps, n_samples=n_samples)
+
+        assert isinstance(df, pd.DataFrame)
+        assert len(df) == n_locations * n_steps
+        assert "location" in df.columns
+        assert "time_step" in df.columns
+        sample_cols = [c for c in df.columns if c.startswith("sample_")]
+        assert len(sample_cols) == n_samples

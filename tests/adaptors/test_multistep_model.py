@@ -8,8 +8,10 @@ import numpy as np
 import xarray as xr
 
 from chap_python_sdk.adaptors.multistep_model import (
+    DeterministicMultistepModel,
     MultistepDistribution,
     MultistepModel,
+    PerStepMultistepModel,
     _build_lag_matrix,  # pyright: ignore[reportPrivateUsage]
     _build_lag_matrix_xr,  # pyright: ignore[reportPrivateUsage]
 )
@@ -368,3 +370,177 @@ class TestPredictMulti:
         assert result.shape == (2, 20, 5)
         # Trajectories should be stochastic
         assert not np.all(result.isel(location=0).values == result.isel(location=0).values[0])
+
+
+class TrivialDeterministicModel:
+    """Returns the mean of last lag as prediction."""
+
+    def fit(self, X: np.ndarray, y: np.ndarray) -> None:
+        """No-op fit."""
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        """Return last lag value as prediction."""
+        return X[:, -1]
+
+
+class TestDeterministicMultistepModel:
+    """Tests for DeterministicMultistepModel."""
+
+    def test_fit_without_exogenous(self) -> None:
+        """Fit without exogenous features should succeed."""
+        model = TrivialDeterministicModel()
+        ms = DeterministicMultistepModel(model, n_target_lags=2)
+        y = np.arange(10, dtype=float)
+        ms.fit(y)
+
+    def test_predict_shape(self) -> None:
+        """Predict returns correct shape."""
+        model = TrivialDeterministicModel()
+        ms = DeterministicMultistepModel(model, n_target_lags=2)
+        y = np.arange(10, dtype=float)
+        ms.fit(y)
+        preds = ms.predict(y[-2:], n_steps=5)
+        assert preds.shape == (5,)
+
+    def test_predict_deterministic(self) -> None:
+        """Same input produces same output (no stochasticity)."""
+        model = TrivialDeterministicModel()
+        ms = DeterministicMultistepModel(model, n_target_lags=2)
+        y = np.arange(10, dtype=float)
+        ms.fit(y)
+        preds1 = ms.predict(y[-2:], n_steps=5)
+        preds2 = ms.predict(y[-2:], n_steps=5)
+        np.testing.assert_array_equal(preds1, preds2)
+
+    def test_predict_multi_shape(self) -> None:
+        """Multi-location predict returns correct shape and dims."""
+        model = TrivialDeterministicModel()
+        ms = DeterministicMultistepModel(model, n_target_lags=2)
+        n_locs, T = 3, 10
+        y = xr.DataArray(
+            np.arange(n_locs * T, dtype=float).reshape(n_locs, T),
+            dims=["location", "time"],
+            coords={"location": ["A", "B", "C"]},
+        )
+        ms.fit_multi(y)
+        previous_y = y.isel(time=slice(-2, None))
+        result = ms.predict_multi(previous_y, n_steps=5)
+        assert result.dims == ("location", "step")
+        assert result.shape == (3, 5)
+
+    def test_predict_multi_deterministic(self) -> None:
+        """Multi-location predictions are deterministic."""
+        model = TrivialDeterministicModel()
+        ms = DeterministicMultistepModel(model, n_target_lags=2)
+        y = xr.DataArray(
+            np.arange(20, dtype=float).reshape(2, 10),
+            dims=["location", "time"],
+            coords={"location": ["X", "Y"]},
+        )
+        ms.fit_multi(y)
+        prev = y.isel(time=slice(-2, None))
+        r1 = ms.predict_multi(prev, n_steps=3)
+        r2 = ms.predict_multi(prev, n_steps=3)
+        np.testing.assert_array_equal(r1.values, r2.values)
+
+    def test_with_exogenous(self) -> None:
+        """Fit and predict with exogenous features."""
+        model = TrivialDeterministicModel()
+        ms = DeterministicMultistepModel(model, n_target_lags=2)
+        y = np.arange(10, dtype=float)
+        X = np.ones((10, 3))
+        ms.fit(y, X)
+        X_future = np.ones((5, 3))
+        preds = ms.predict(y[-2:], n_steps=5, X=X_future)
+        assert preds.shape == (5,)
+
+
+class TestPerStepMultistepModel:
+    """Tests for PerStepMultistepModel."""
+
+    def _make_lag_idx(self) -> Any:
+        """Return a get_lag_idx callback for feature names like 'feat_lag1', 'feat_lag2'."""
+        import re
+
+        def get_lag_idx(col: str) -> int | None:
+            m = re.search(r"_lag(\d+)$", col)
+            if m:
+                return int(m.group(1))
+            return None
+
+        return get_lag_idx
+
+    def test_fit_predict_no_exog(self) -> None:
+        """Fit and predict with only target lags (no exogenous)."""
+        ms = PerStepMultistepModel(
+            model_factory=TrivialDeterministicModel,
+            n_target_lags=2,
+            n_steps=3,
+            get_lag_idx=self._make_lag_idx(),
+        )
+        y = np.arange(10, dtype=float)
+        ms.fit(y)
+        preds = ms.predict(y[-2:])
+        assert preds.shape == (3,)
+
+    def test_predict_deterministic(self) -> None:
+        """Same input produces same output."""
+        ms = PerStepMultistepModel(
+            model_factory=TrivialDeterministicModel,
+            n_target_lags=2,
+            n_steps=3,
+            get_lag_idx=self._make_lag_idx(),
+        )
+        y = np.arange(10, dtype=float)
+        ms.fit(y)
+        preds1 = ms.predict(y[-2:])
+        preds2 = ms.predict(y[-2:])
+        np.testing.assert_array_equal(preds1, preds2)
+
+    def test_trains_separate_models(self) -> None:
+        """Each step has its own model instance."""
+        ms = PerStepMultistepModel(
+            model_factory=TrivialDeterministicModel,
+            n_target_lags=2,
+            n_steps=4,
+            get_lag_idx=self._make_lag_idx(),
+        )
+        y = np.arange(10, dtype=float)
+        ms.fit(y)
+        assert len(ms._models) == 4  # pyright: ignore[reportPrivateUsage]
+        # All models should be distinct instances
+        assert ms._models[0] is not ms._models[1]  # pyright: ignore[reportPrivateUsage]
+
+    def test_feature_masking(self) -> None:
+        """Features with lag < step are masked out."""
+        feature_names = ["feat_lag1", "feat_lag2", "no_lag"]
+        ms = PerStepMultistepModel(
+            model_factory=TrivialDeterministicModel,
+            n_target_lags=2,
+            n_steps=3,
+            get_lag_idx=self._make_lag_idx(),
+            feature_names=feature_names,
+        )
+        # Step 0: all features available
+        assert ms._build_feature_mask(0) == [True, True, True]  # pyright: ignore[reportPrivateUsage]
+        # Step 1: feat_lag1 has lag=1, not < 1, so still available
+        assert ms._build_feature_mask(1) == [True, True, True]  # pyright: ignore[reportPrivateUsage]
+        # Step 2: feat_lag1 has lag=1 < 2, so dropped
+        assert ms._build_feature_mask(2) == [False, True, True]  # pyright: ignore[reportPrivateUsage]
+
+    def test_with_exogenous(self) -> None:
+        """Fit and predict with exogenous features."""
+        feature_names = ["feat_lag1", "feat_lag2", "no_lag"]
+        ms = PerStepMultistepModel(
+            model_factory=TrivialDeterministicModel,
+            n_target_lags=2,
+            n_steps=3,
+            get_lag_idx=self._make_lag_idx(),
+            feature_names=feature_names,
+        )
+        y = np.arange(10, dtype=float)
+        X = np.ones((10, 3))
+        ms.fit(y, X)
+        X_future = np.ones((3, 3))
+        preds = ms.predict(y[-2:], X=X_future)
+        assert preds.shape == (3,)

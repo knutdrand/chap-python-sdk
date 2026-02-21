@@ -45,7 +45,7 @@ class DataFrameMultistepModel:
         X_xr = self._features_to_xarray(X)
         self._model.fit_multi(y_xr, X_xr)
 
-    def predict(
+    def predict_xarray(
         self,
         y_historic: pd.DataFrame,
         X_future: pd.DataFrame | None,
@@ -80,6 +80,29 @@ class DataFrameMultistepModel:
         flat: npt.NDArray[np.floating[Any]] = self._target_pipeline.inverse_transform(values.reshape(-1, 1)).ravel()
         values = flat.reshape(original_shape)
         return xr.DataArray(values, dims=predictions.dims, coords=predictions.coords)
+
+    def predict(
+        self,
+        y_historic: pd.DataFrame,
+        X_future: pd.DataFrame | None,
+        n_steps: int,
+        n_samples: int,
+    ) -> pd.DataFrame:
+        """Predict and return a wide-format DataFrame.
+
+        Returns a DataFrame with columns: location, time_step, sample_0, sample_1, ...
+        One row per (location, time_step), one column per sample trajectory.
+        """
+        predictions = self.predict_xarray(y_historic, X_future, n_steps, n_samples)
+        locations = predictions.coords["location"].values
+        records: list[dict[str, object]] = []
+        for loc_idx, loc in enumerate(locations):
+            for step_idx in range(predictions.sizes["step"]):
+                row: dict[str, object] = {"location": loc, "time_step": step_idx}
+                for traj_idx in range(predictions.sizes["trajectory"]):
+                    row[f"sample_{traj_idx}"] = float(predictions.values[loc_idx, traj_idx, step_idx])
+                records.append(row)
+        return pd.DataFrame(records)
 
     def _target_to_xarray(self, y_df: pd.DataFrame) -> xr.DataArray:
         """Pivot target DataFrame to xr.DataArray (location, time)."""
