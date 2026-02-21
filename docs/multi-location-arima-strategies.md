@@ -53,7 +53,7 @@ The opposite extreme: stack all provinces into a single training set and fit one
 
 This is what the **multistep model** in this codebase does. The `fit_multi` method stacks all (location, time) pairs into a single feature matrix:
 
-```python
+```python notest
 features_stacked = features.stack(sample=("location", "time"))
 y_stacked = y_target.stack(sample=("location", "time"))
 one_step_model.fit(features_stacked.values, y_stacked.values)

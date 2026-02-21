@@ -267,7 +267,7 @@ For the **seasonal** orders, look at the ACF/PACF at the seasonal lags (12, 24, 
 
 Fit many candidate models and compare them using **AIC** (Akaike Information Criterion) or **BIC** (Bayesian Information Criterion):
 
-```python
+```python notest
 import pmdarima as pm
 
 model = pm.auto_arima(
@@ -320,7 +320,7 @@ After fitting, the residuals `ε̂(t) = y(t) − ŷ(t)` should behave like **whi
 **4. No remaining seasonality:**
 - Check the ACF at the seasonal lag (12, 24, ...) — if significant, add or increase seasonal terms
 
-```python
+```python notest
 from statsmodels.stats.diagnostic import acorr_ljungbox
 
 residuals = model.resid()
