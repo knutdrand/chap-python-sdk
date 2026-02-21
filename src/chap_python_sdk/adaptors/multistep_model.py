@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Protocol
 
 import numpy as np
@@ -297,6 +298,113 @@ class DeterministicMultistepModel:
             dims=["location", "step"],
             coords={"location": locations},
         )
+
+
+class PerStepMultistepModel:
+    """Multi-step model that trains separate models per forecast step.
+
+    At each step k, features where ``get_lag_idx(col) is not None`` and
+    ``get_lag_idx(col) < k`` are dropped, since those lagged values would
+    not be available at that forecast horizon.
+    """
+
+    def __init__(
+        self,
+        model_factory: Callable[[], DeterministicOneStepModel],
+        n_target_lags: int,
+        n_steps: int,
+        get_lag_idx: Callable[[str], int | None],
+        feature_names: list[str] | None = None,
+    ) -> None:
+        """Initialize with a factory for creating one-step models.
+
+        Args:
+            model_factory: Callable that returns a fresh DeterministicOneStepModel.
+            n_target_lags: Number of lagged target values used as features.
+            n_steps: Number of forecast steps (one model per step).
+            get_lag_idx: Callback returning the lag index for a feature column,
+                or None if the column is not a lagged feature.
+            feature_names: Names of the exogenous feature columns (excluding target lags).
+        """
+        self.model_factory = model_factory
+        self.n_target_lags = n_target_lags
+        self.n_steps = n_steps
+        self.get_lag_idx = get_lag_idx
+        self.feature_names = feature_names or []
+        self._models: list[DeterministicOneStepModel] = []
+        self._feature_masks: list[list[bool]] = []
+
+    def _build_feature_mask(self, step: int) -> list[bool]:
+        """Return a boolean mask over exogenous feature columns for a given step.
+
+        True means the feature is available at that step.
+        """
+        mask = []
+        for col in self.feature_names:
+            lag = self.get_lag_idx(col)
+            if lag is not None and lag < step:
+                mask.append(False)
+            else:
+                mask.append(True)
+        return mask
+
+    def fit(self, y: np.ndarray, X: np.ndarray | None = None) -> None:
+        """Train n_steps separate models with step-appropriate feature subsets.
+
+        Args:
+            y: Target time series, shape (n_timepoints,).
+            X: Exogenous features, shape (n_timepoints, n_features) or None.
+        """
+        lags = _build_lag_matrix(y, self.n_target_lags)
+        y_target = y[self.n_target_lags :]
+
+        self._models = []
+        self._feature_masks = []
+
+        for step in range(self.n_steps):
+            mask = self._build_feature_mask(step)
+            self._feature_masks.append(mask)
+
+            if X is not None:
+                X_trimmed = X[self.n_target_lags :]
+                X_masked = X_trimmed[:, mask]
+                exog = xr.DataArray(X_masked, dims=["time", "feature"])
+                features = xr.concat([exog, lags.rename(lag="feature")], dim="feature")
+            else:
+                features = lags.rename(lag="feature")
+
+            model = self.model_factory()
+            model.fit(features.values, y_target)
+            self._models.append(model)
+
+    def predict(
+        self,
+        previous_y: np.ndarray,
+        X: np.ndarray | None = None,
+    ) -> np.ndarray:
+        """Generate deterministic multi-step forecast using per-step models.
+
+        Args:
+            previous_y: Recent observations, shape (>= n_target_lags,).
+            X: Known future exogenous features, shape (n_steps, n_features) or None.
+
+        Returns:
+            Array of shape (n_steps,) with point predictions.
+        """
+        lag_window = previous_y[-self.n_target_lags :].copy().astype(float)
+        results = []
+        for step in range(self.n_steps):
+            mask = self._feature_masks[step]
+            if X is not None:
+                X_step = X[step][mask]
+                features = np.concatenate([X_step, lag_window]).reshape(1, -1)
+            else:
+                features = lag_window.reshape(1, -1)
+            pred = float(self._models[step].predict(features)[0])
+            results.append(pred)
+            lag_window = np.roll(lag_window, -1)
+            lag_window[-1] = pred
+        return np.array(results)
 
 
 class MultistepDistribution:

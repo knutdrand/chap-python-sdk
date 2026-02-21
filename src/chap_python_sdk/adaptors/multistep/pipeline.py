@@ -113,6 +113,34 @@ class SeasonEncoder(BaseEstimator, TransformerMixin):  # type: ignore[misc]
         return result
 
 
+class InteractionTransformer(BaseEstimator, TransformerMixin):  # type: ignore[misc]
+    """Sklearn-compatible transformer that creates interaction features between two sets of columns.
+
+    Given ``left_prefix`` and ``right_prefix``, finds all columns matching each
+    prefix and creates pairwise product columns named
+    ``{left_col}_x_{right_col}``.
+    """
+
+    def __init__(self, left_prefix: str = "location_", right_prefix: str = "season_") -> None:
+        """Initialize with column prefixes for the two groups to interact."""
+        self.left_prefix = left_prefix
+        self.right_prefix = right_prefix
+
+    def fit(self, X: pd.DataFrame, y: object = None) -> InteractionTransformer:
+        """Learn which columns match each prefix."""
+        self.left_cols_: list[str] = [c for c in X.columns if c.startswith(self.left_prefix)]
+        self.right_cols_: list[str] = [c for c in X.columns if c.startswith(self.right_prefix)]
+        return self
+
+    def transform(self, X: pd.DataFrame, y: object = None) -> pd.DataFrame:
+        """Add pairwise interaction columns."""
+        result = X.copy()
+        for left in self.left_cols_:
+            for right in self.right_cols_:
+                result[f"{left}_x_{right}"] = result[left] * result[right]
+        return result
+
+
 class FeatureLagger(BaseEstimator, TransformerMixin):  # type: ignore[misc]
     """Sklearn-compatible transformer that adds lagged feature columns per location.
 
